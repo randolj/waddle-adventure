@@ -1,0 +1,578 @@
+import { mulberry32, randRange, valueNoise, roughOutline, roughBlobPath } from "./utils.js";
+import { tierColor, DUNGEON_TIERS } from "./dungeon.js";
+import { BIOMES, BIOME_IDS } from "./biomes.js";
+
+const INK = "#191620";
+
+// Lighten (+) or darken (-) a #rrggbb colour.
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, ((n >> 16) & 255) + amt));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+  const b = Math.max(0, Math.min(255, (n & 255) + amt));
+  return `rgb(${r},${g},${b})`;
+}
+
+// The open world: dirty-ice ground, debris, cracks, and jagged obstacles.
+export class World {
+  constructor(width, height, seed = 1337) {
+    this.width = width;
+    this.height = height;
+    this.tile = 56;
+    this.seed = seed;
+
+    const rng = mulberry32(seed);
+
+    // Central safe camp: no creatures spawn or enter here; the start area.
+    this.safeZone = {
+      name: "Camp",
+      x: width / 2 - 400,
+      y: height / 2 - 320,
+      w: 800,
+      h: 640,
+    };
+
+    // Vendor stall inside the camp (press E nearby to shop).
+    this.shop = { x: width / 2 + 190, y: this.safeZone.y + 175, r: 36 };
+
+    // The bearded elder who decodes relics (press E nearby).
+    this.elder = { x: width / 2 - 250, y: height / 2 + 30, r: 30, wave: 0 };
+
+    // Dungeon entrances scattered through the wilds, one per difficulty tier.
+    // Biomes are laid out as rings around the camp: an inner Tundra circle, a
+    // Cavern ring around it, then the outer area sliced into angular wedges.
+    const minDim = Math.min(width, height);
+    this.ring0 = minDim * 0.17; // inner circle radius (Tundra)
+    this.ring1 = minDim * 0.34; // second circle radius (Cavern ring beyond ring0)
+    this.ringBiomes = ["tundra", "cavern"];
+    this.sliceBiomes = ["ember", "verdant", "shadow"];
+
+    // One dungeon entrance per tier, placed inside its biome region.
+    const cx = width / 2;
+    const cy = height / 2;
+    const sliceAng = (i) => ((i + 0.5) / this.sliceBiomes.length) * Math.PI * 2 - Math.PI;
+    const outerR = this.ring1 + (minDim / 2 - this.ring1) * 0.5;
+    const specs = [
+      { tier: 0, biome: "tundra", rad: this.ring0 * 0.72, ang: -Math.PI / 2 },
+      { tier: 1, biome: "cavern", rad: (this.ring0 + this.ring1) / 2, ang: 0.7 },
+      { tier: 2, biome: "ember", rad: outerR, ang: sliceAng(0) },
+      { tier: 3, biome: "verdant", rad: outerR, ang: sliceAng(1) },
+      { tier: 4, biome: "shadow", rad: outerR, ang: sliceAng(2) },
+    ];
+    this.dungeons = specs.map((s) => ({
+      x: Math.max(180, Math.min(width - 180, cx + Math.cos(s.ang) * s.rad)),
+      y: Math.max(180, Math.min(height - 180, cy + Math.sin(s.ang) * s.rad)),
+      r: 46,
+      tierIndex: s.tier,
+      biome: s.biome,
+    }));
+
+    // Solid obstacles (rocks / ice shards) the player and enemies collide with.
+    this.obstacles = [];
+    const obstacleCount = 160;
+    for (let i = 0; i < obstacleCount; i++) {
+      const r = randRange(rng, 26, 54);
+      const x = randRange(rng, r + 40, width - r - 40);
+      const y = randRange(rng, r + 40, height - r - 40);
+      if (this.inSafeZone(x, y, 60)) continue; // keep the camp clear
+      const kind = rng() < 0.5 ? "rock" : "ice";
+      this.obstacles.push({
+        x, y, r, kind, biome: this.biomeAt(x, y),
+        outline: roughOutline(rng, 11, kind === "ice" ? 0.22 : 0.16),
+        rot: rng() * Math.PI * 2,
+        // A few interior facet lines + speckles, in local space.
+        facets: Array.from({ length: 3 }, () => ({
+          a: rng() * Math.PI * 2,
+          len: randRange(rng, 0.4, 0.85),
+        })),
+        specks: Array.from({ length: Math.floor(r / 4) }, () => ({
+          x: randRange(rng, -r * 0.6, r * 0.6),
+          y: randRange(rng, -r * 0.6, r * 0.6),
+          r: randRange(rng, 0.8, 2.2),
+          d: rng() < 0.5,
+        })),
+      });
+    }
+
+    // Scattered debris specks (snow grit + dark flecks).
+    this.specks = [];
+    for (let i = 0; i < 2600; i++) {
+      this.specks.push({
+        x: randRange(rng, 0, width),
+        y: randRange(rng, 0, height),
+        r: randRange(rng, 0.6, 2.4),
+        dark: rng() < 0.55,
+      });
+    }
+
+    // Darker "exposed" patches worn into the ice.
+    this.patches = [];
+    for (let i = 0; i < 300; i++) {
+      const pr = randRange(rng, 22, 64);
+      this.patches.push({
+        x: randRange(rng, 0, width),
+        y: randRange(rng, 0, height),
+        r: pr,
+        outline: roughOutline(rng, 9, 0.3),
+        rot: rng() * Math.PI * 2,
+        alpha: randRange(rng, 0.06, 0.14),
+      });
+    }
+
+    // Cracks: jagged polylines.
+    this.cracks = [];
+    for (let i = 0; i < 200; i++) {
+      const sx = randRange(rng, 0, width);
+      const sy = randRange(rng, 0, height);
+      const pts = [{ x: sx, y: sy }];
+      let a = rng() * Math.PI * 2;
+      const segs = 2 + Math.floor(rng() * 4);
+      for (let s = 0; s < segs; s++) {
+        a += randRange(rng, -0.9, 0.9);
+        const len = randRange(rng, 10, 30);
+        const last = pts[pts.length - 1];
+        pts.push({ x: last.x + Math.cos(a) * len, y: last.y + Math.sin(a) * len });
+      }
+      this.cracks.push({ pts, w: randRange(rng, 0.8, 1.8) });
+    }
+  }
+
+  // Which biome owns (x, y) — concentric rings around camp, then angular slices.
+  biomeAt(x, y) {
+    if (this.inSafeZone(x, y, 120)) return "tundra";
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const d = Math.hypot(x - cx, y - cy);
+    if (d < this.ring0) return this.ringBiomes[0];
+    if (d < this.ring1) return this.ringBiomes[1];
+    const a = Math.atan2(y - cy, x - cx) + Math.PI; // 0..2π
+    const n = this.sliceBiomes.length;
+    return this.sliceBiomes[Math.min(n - 1, Math.floor((a / (Math.PI * 2)) * n))];
+  }
+
+  // Is (x, y) inside the safe camp? `pad` expands (positive) or shrinks the test.
+  inSafeZone(x, y, pad = 0) {
+    const z = this.safeZone;
+    return x > z.x - pad && x < z.x + z.w + pad && y > z.y - pad && y < z.y + z.h + pad;
+  }
+
+  // Push a point to the nearest camp edge if it's inside (keeps creatures out).
+  keepOutOfSafe(x, y, r) {
+    const z = this.safeZone;
+    if (!this.inSafeZone(x, y, r)) return { x, y };
+    const dl = x - (z.x - r);
+    const dr = z.x + z.w + r - x;
+    const dt = y - (z.y - r);
+    const db = z.y + z.h + r - y;
+    const m = Math.min(dl, dr, dt, db);
+    if (m === dl) x = z.x - r;
+    else if (m === dr) x = z.x + z.w + r;
+    else if (m === dt) y = z.y - r;
+    else y = z.y + z.h + r;
+    return { x, y };
+  }
+
+  // Returns a point pushed out of any obstacle it overlaps.
+  resolve(x, y, radius) {
+    for (const o of this.obstacles) {
+      const dx = x - o.x;
+      const dy = y - o.y;
+      const d = Math.hypot(dx, dy);
+      const min = radius + o.r;
+      if (d > 0 && d < min) {
+        const push = (min - d) / d;
+        x += dx * push;
+        y += dy * push;
+      } else if (d === 0) {
+        x += min;
+      }
+    }
+    return { x, y };
+  }
+
+  draw(ctx, camera, viewW, viewH) {
+    const t = this.tile;
+    const x0 = camera.x;
+    const y0 = camera.y;
+    const startX = Math.floor(x0 / t) * t;
+    const startY = Math.floor(y0 / t) * t;
+
+    // Mottled ground, coloured by the biome at each tile.
+    for (let x = startX; x < x0 + viewW; x += t) {
+      for (let y = startY; y < y0 + viewH; y += t) {
+        const pal = BIOMES[this.biomeAt(x + t / 2, y + t / 2)].ground;
+        const light = pal[0];
+        const dark = pal[1];
+        const n = valueNoise(x / t / 2.3, y / t / 2.3, this.seed);
+        const m = n * 0.7 + valueNoise(x / t, y / t, this.seed + 7) * 0.3;
+        const r = Math.round(dark[0] + (light[0] - dark[0]) * m);
+        const g = Math.round(dark[1] + (light[1] - dark[1]) * m);
+        const b = Math.round(dark[2] + (light[2] - dark[2]) * m);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x, y, t + 1, t + 1);
+      }
+    }
+
+    const visible = (cx, cy, pad) =>
+      cx + pad >= x0 && cx - pad <= x0 + viewW && cy + pad >= y0 && cy - pad <= y0 + viewH;
+
+    // Worn patches.
+    for (const p of this.patches) {
+      if (!visible(p.x, p.y, p.r)) continue;
+      ctx.fillStyle = `rgba(70, 78, 92, ${p.alpha})`;
+      roughBlobPath(ctx, p.x, p.y, p.r, p.outline, 0.8, p.rot);
+      ctx.fill();
+    }
+
+    // Cracks.
+    ctx.strokeStyle = "rgba(40, 44, 58, 0.28)";
+    ctx.lineCap = "round";
+    for (const c of this.cracks) {
+      if (!visible(c.pts[0].x, c.pts[0].y, 60)) continue;
+      ctx.lineWidth = c.w;
+      ctx.beginPath();
+      ctx.moveTo(c.pts[0].x, c.pts[0].y);
+      for (let i = 1; i < c.pts.length; i++) ctx.lineTo(c.pts[i].x, c.pts[i].y);
+      ctx.stroke();
+    }
+
+    // Debris specks (grain).
+    for (const s of this.specks) {
+      if (!visible(s.x, s.y, 4)) continue;
+      ctx.fillStyle = s.dark ? "rgba(45, 50, 64, 0.5)" : "rgba(244, 248, 252, 0.6)";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Safe camp overlay.
+    this.drawCamp(ctx);
+
+    // Rough world border.
+    ctx.strokeStyle = "rgba(40, 44, 58, 0.6)";
+    ctx.lineWidth = 8;
+    ctx.strokeRect(0, 0, this.width, this.height);
+
+    // Dungeon entrances.
+    for (const dg of this.dungeons) {
+      if (!visible(dg.x, dg.y, dg.r + 50)) continue;
+      this.drawEntrance(ctx, dg);
+    }
+
+    // Obstacles.
+    for (const o of this.obstacles) {
+      if (!visible(o.x, o.y, o.r + 10)) continue;
+      this.drawObstacle(ctx, o);
+    }
+  }
+
+  drawEntrance(ctx, dg) {
+    const { x, y, r } = dg;
+    const cfg = DUNGEON_TIERS[dg.tierIndex];
+    const col = tierColor(cfg.tier);
+    ctx.save();
+    ctx.lineJoin = "round";
+
+    // Ground shadow.
+    ctx.fillStyle = "rgba(20,24,38,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 0.6, r * 1.1, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Dark cave opening.
+    ctx.fillStyle = "#14121b";
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.66, y + r * 0.55);
+    ctx.lineTo(x - r * 0.66, y - r * 0.1);
+    ctx.quadraticCurveTo(x, y - r * 0.95, x + r * 0.66, y - r * 0.1);
+    ctx.lineTo(x + r * 0.66, y + r * 0.55);
+    ctx.closePath();
+    ctx.fill();
+
+    // Stone arch frame.
+    ctx.strokeStyle = "#6d7280";
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.78, y + r * 0.55);
+    ctx.lineTo(x - r * 0.78, y - r * 0.08);
+    ctx.quadraticCurveTo(x, y - r * 1.08, x + r * 0.78, y - r * 0.08);
+    ctx.lineTo(x + r * 0.78, y + r * 0.55);
+    ctx.stroke();
+    ctx.strokeStyle = "#3f434e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Tier banner above the arch.
+    const bw = 54;
+    const bx = x - bw / 2;
+    const by = y - r * 1.5;
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + bw, by);
+    ctx.lineTo(bx + bw, by + 22);
+    ctx.lineTo(x, by + 30);
+    ctx.lineTo(bx, by + 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#1a1610";
+    ctx.font = "700 14px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`T${cfg.tier}`, x, by + 12);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
+  }
+
+  drawCamp(ctx) {
+    const z = this.safeZone;
+    // Warm tint marking the safe ground.
+    ctx.fillStyle = "rgba(255, 210, 140, 0.07)";
+    ctx.fillRect(z.x, z.y, z.w, z.h);
+    // Dashed warm border.
+    ctx.strokeStyle = "rgba(120, 175, 120, 0.55)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([14, 10]);
+    ctx.strokeRect(z.x, z.y, z.w, z.h);
+    ctx.setLineDash([]);
+    // Label.
+    ctx.fillStyle = "rgba(60, 90, 60, 0.6)";
+    ctx.font = "600 22px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("CAMP — SAFE", z.x + z.w / 2, z.y + 32);
+    ctx.textAlign = "left";
+
+    // A small campfire near the top of the camp.
+    const fx = z.x + z.w / 2;
+    const fy = z.y + 110;
+    ctx.fillStyle = "rgba(25, 30, 45, 0.25)";
+    ctx.beginPath();
+    ctx.ellipse(fx, fy + 8, 26, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#6b7079";
+    for (const a of [0, 1.05, 2.1, 3.14, 4.2, 5.25]) {
+      ctx.beginPath();
+      ctx.arc(fx + Math.cos(a) * 18, fy + Math.sin(a) * 7, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#e8923a";
+    ctx.beginPath();
+    ctx.moveTo(fx - 9, fy + 2);
+    ctx.quadraticCurveTo(fx - 4, fy - 18, fx + 2, fy - 26);
+    ctx.quadraticCurveTo(fx + 5, fy - 12, fx + 10, fy + 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(fx - 4, fy + 1);
+    ctx.quadraticCurveTo(fx - 1, fy - 11, fx + 3, fy - 16);
+    ctx.quadraticCurveTo(fx + 4, fy - 7, fx + 6, fy + 1);
+    ctx.closePath();
+    ctx.fill();
+
+    this.drawShop(ctx);
+    this.drawElder(ctx);
+  }
+
+  drawElder(ctx) {
+    const ex = this.elder.x;
+    const ey = this.elder.y;
+    const r = 18;
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.lineJoin = "round";
+
+    // Shadow.
+    ctx.fillStyle = "rgba(20,24,38,0.24)";
+    ctx.beginPath();
+    ctx.ellipse(0, r * 1.05, r * 1.0, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Staff.
+    ctx.strokeStyle = "#6a4a28";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.15, -r * 1.4);
+    ctx.lineTo(r * 1.15, r * 1.1);
+    ctx.stroke();
+    ctx.fillStyle = "#8fd0e6";
+    ctx.beginPath();
+    ctx.arc(r * 1.15, -r * 1.5, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body (robed penguin).
+    ctx.fillStyle = "#3a3550";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.95, r * 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Eyes.
+    ctx.fillStyle = "#f3efe6";
+    ctx.beginPath();
+    ctx.arc(-r * 0.28, -r * 0.5, r * 0.18, 0, Math.PI * 2);
+    ctx.arc(r * 0.28, -r * 0.5, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#14110e";
+    ctx.beginPath();
+    ctx.arc(-r * 0.28, -r * 0.5, r * 0.09, 0, Math.PI * 2);
+    ctx.arc(r * 0.28, -r * 0.5, r * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bushy white eyebrows.
+    ctx.strokeStyle = "#eef2f5";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, -r * 0.72);
+    ctx.lineTo(-r * 0.08, -r * 0.66);
+    ctx.moveTo(r * 0.08, -r * 0.66);
+    ctx.lineTo(r * 0.5, -r * 0.72);
+    ctx.stroke();
+
+    // Beak.
+    ctx.fillStyle = "#d9821c";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.16, -r * 0.34);
+    ctx.lineTo(r * 0.16, -r * 0.34);
+    ctx.lineTo(0, -r * 0.16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Long white beard.
+    ctx.fillStyle = "#eef2f5";
+    ctx.strokeStyle = "rgba(20,20,24,0.25)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.5, -r * 0.18);
+    ctx.quadraticCurveTo(-r * 0.62, r * 0.7, 0, r * 1.5);
+    ctx.quadraticCurveTo(r * 0.62, r * 0.7, r * 0.5, -r * 0.18);
+    ctx.quadraticCurveTo(0, r * 0.2, -r * 0.5, -r * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Label.
+    ctx.fillStyle = "rgba(60, 70, 90, 0.7)";
+    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("ELDER", 0, -r * 2.0);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  drawShop(ctx) {
+    const sx = this.shop.x;
+    const sy = this.shop.y;
+    ctx.lineJoin = "round";
+    // Shadow.
+    ctx.fillStyle = "rgba(25,30,45,0.22)";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + 26, 46, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Posts.
+    ctx.fillStyle = "#6b4a2a";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.fillRect(sx - 44, sy - 36, 6, 60);
+    ctx.strokeRect(sx - 44, sy - 36, 6, 60);
+    ctx.fillRect(sx + 38, sy - 36, 6, 60);
+    ctx.strokeRect(sx + 38, sy - 36, 6, 60);
+    // Striped awning.
+    const aw = 92;
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = i % 2 === 0 ? "#c64b4b" : "#efe7d8";
+      ctx.fillRect(sx - 46 + i * (aw / 6), sy - 44, aw / 6, 16);
+    }
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx - 46, sy - 44, aw, 16);
+    // Counter.
+    ctx.fillStyle = "#8a5a32";
+    ctx.fillRect(sx - 40, sy + 6, 80, 18);
+    ctx.strokeRect(sx - 40, sy + 6, 80, 18);
+    // Sign.
+    ctx.fillStyle = "#2b2620";
+    ctx.fillRect(sx - 22, sy - 24, 44, 18);
+    ctx.strokeRect(sx - 22, sy - 24, 44, 18);
+    ctx.fillStyle = "#ffd166";
+    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("SHOP", sx, sy - 14);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  drawObstacle(ctx, o) {
+    const r = o.r;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+
+    // Grounded shadow.
+    ctx.fillStyle = "rgba(25, 30, 45, 0.28)";
+    ctx.beginPath();
+    ctx.ellipse(2, r * 0.55, r * 1.0, r * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const bcol = (BIOMES[o.biome] || BIOMES.tundra).obstacle[o.kind];
+    const base = bcol;
+    const dark = shade(bcol, -42);
+    const light = shade(bcol, 46);
+
+    // Body silhouette with a heavy ink outline.
+    roughBlobPath(ctx, 0, 0, r, o.outline, 0.92, o.rot);
+    ctx.fillStyle = base;
+    ctx.fill();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+
+    // Shaded lower half (clip to silhouette).
+    ctx.save();
+    roughBlobPath(ctx, 0, 0, r, o.outline, 0.92, o.rot);
+    ctx.clip();
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.ellipse(r * 0.25, r * 0.4, r * 1.1, r * 0.9, 0, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.55;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Top-left highlight.
+    ctx.fillStyle = light;
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.35, -r * 0.4, r * 0.5, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Speckle texture.
+    for (const s of o.specks) {
+      ctx.fillStyle = s.d ? "rgba(20,24,34,0.4)" : "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Interior facet lines (cracks / cuts).
+    ctx.strokeStyle = "rgba(20, 24, 34, 0.4)";
+    ctx.lineWidth = 1.4;
+    for (const f of o.facets) {
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(f.a) * r * f.len, Math.sin(f.a) * r * f.len);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
