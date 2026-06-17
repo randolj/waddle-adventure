@@ -807,7 +807,7 @@ export class Player {
     }
 
     this.traceBody(ctx, r);
-    ctx.fillStyle = flash ? "#ff6b6b" : "#2a2620";
+    ctx.fillStyle = flash ? "#ff6b6b" : "#00563b"; // Castleton green
     ctx.fill();
     ctx.lineWidth = 2.8;
     ctx.strokeStyle = INK;
@@ -818,11 +818,11 @@ export class Player {
       this.traceBody(ctx, r);
       ctx.clip();
       ctx.globalAlpha = 0.5;
-      ctx.fillStyle = "#1b1813";
+      ctx.fillStyle = "#003526";
       ctx.beginPath();
       ctx.ellipse(r * 0.7, r * 0.3, r * 0.9, r * 1.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#3a352c";
+      ctx.fillStyle = "#0a6e4a";
       ctx.beginPath();
       ctx.ellipse(-r * 0.45, -r * 0.75, r * 0.5, r * 0.55, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -837,7 +837,7 @@ export class Player {
     ctx.strokeStyle = "rgba(20,17,14,0.32)";
     ctx.stroke();
 
-    ctx.fillStyle = flash ? "#ff6b6b" : "#221f19";
+    ctx.fillStyle = flash ? "#ff6b6b" : "#00402d";
     ctx.lineWidth = 2;
     ctx.strokeStyle = INK;
     ctx.beginPath();
