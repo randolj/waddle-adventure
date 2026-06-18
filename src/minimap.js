@@ -1,6 +1,7 @@
 // Renders the world map in two modes: a corner minimap and a fullscreen overlay.
 
 import { BIOMES } from "./biomes.js";
+import { roundRect as rr } from "./utils.js";
 
 const ICE = "#c6ced6";
 const OBST = "#5a5e68";
@@ -9,16 +10,6 @@ const SAFE_BORDER = "rgba(70, 150, 90, 0.85)";
 const ENEMY = "#e24b4a";
 const PLAYER = "#ffd166";
 const INK = "#14110e";
-
-function rr(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
 
 // Draw the scaled world into a rect.
 function renderInto(ctx, rx, ry, rw, rh, data, opts) {

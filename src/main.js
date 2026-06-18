@@ -2,12 +2,17 @@ import { Input } from "./input.js";
 import { Camera } from "./camera.js";
 import { World } from "./world.js";
 import { Player } from "./player.js";
-import { Enemy } from "./enemy.js";
-import { Dungeon, DUNGEON_TIERS, tierColor } from "./dungeon.js";
+import { Enemy, makeProjectile } from "./enemy.js";
+import { Dungeon, dungeonConfig, depthColor } from "./dungeon.js";
 import { drawMap } from "./minimap.js";
 import { InventoryUI } from "./inventory.js";
 import { DebugMenu } from "./debug.js";
-import { rollShopStock, rollDropTemplate, makeItem, makeSealedRelic, decodeRelic, RARITIES } from "./items.js";
+import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, decodeRelic, RARITIES, SLOTS, CLASS_NAMES } from "./items.js";
+import { MetaUI } from "./metaui.js";
+import { MenuScreen } from "./menu.js";
+import { Fx } from "./fx.js";
+import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawBanner, drawHud, drawGameOver } from "./hud.js";
+import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar } from "./meta.js";
 import { BIOMES } from "./biomes.js";
 import { sfx, resumeAudio, toggleMute, isMuted } from "./sfx.js";
 import { dist, angleDiff, clamp } from "./utils.js";
@@ -34,7 +39,10 @@ const ctx = canvas.getContext("2d");
 const input = new Input(canvas);
 const camera = new Camera();
 const ui = new InventoryUI();
+const metaUi = new MetaUI();
+const menu = new MenuScreen();
 const debug = new DebugMenu();
+const fx = new Fx(); // screen juice: particles, floaters, rings, shake, hit-stop
 
 function makeGrainPattern() {
   const size = 128;
@@ -63,13 +71,21 @@ let banner = null;
 let prevSafe = true;
 let nearShop = false;
 let nearElder = false;
+let nearQuartermaster = false;
 let nearDungeon = null;
+
+// --- Run / extraction state ---
+// A "run" is a dungeon dive. Loot picked up during it is "at risk": extract via
+// the Exit portal to keep it; die and it's lost (only shards survive).
+let onRun = false;
+let runDeepest = 0; // deepest depth reached this run (drives shard payout)
+let runSnapshot = null; // { uids:Set, coins } captured at run start = the safe baseline
+let lastRunResult = null; // { extracted, depth, shards } for the game-over / banner text
 let hoverDungeon = null;
-// Juice: screen shake, hit-stop, impact particles, damage numbers, ambient motes.
-let shake = 0;
-let hitStop = 0;
-let fxParts, floaters, ambient, ambientTimer, fxClock, prevHp;
-let rings, spawners, footTimer;
+// Particles / shake / hit-stop live on the `fx` instance (fx.js). Ambient motes,
+// spawn telegraphs, the combo counter, and footstep timing stay here.
+let ambient, ambientTimer, fxClock, prevHp;
+let spawners, footTimer;
 let combo = 0;
 let comboTimer = 0;
 let wasAttacking = false;
@@ -91,9 +107,10 @@ function viewSize() {
   return { w: canvas.width / dpr, h: canvas.height / dpr };
 }
 
-function reset() {
+// Build a fresh world + player for a class (loading `profile` if returning).
+function buildGameFor(cls, profile) {
   world = new World(WORLD_W, WORLD_H);
-  player = new Player(WORLD_W / 2, WORLD_H / 2);
+  player = new Player(WORLD_W / 2, WORLD_H / 2, cls, profile);
   enemies = [];
   pickups = [];
   toasts = [];
@@ -107,12 +124,12 @@ function reset() {
   dungeon = null;
   portals = [];
   returnPos = null;
-  shake = 0;
-  hitStop = 0;
-  fxParts = [];
-  floaters = [];
+  onRun = false;
+  runDeepest = 0;
+  runSnapshot = null;
+  lastRunResult = null;
+  fx.reset();
   ambient = [];
-  rings = [];
   spawners = [];
   footTimer = 0;
   ambientTimer = 0;
@@ -123,44 +140,71 @@ function reset() {
   wasAttacking = false;
   wasDashing = false;
   ui.close();
+  metaUi.close();
 }
 
+// Restart the currently-active character (used by death paths + debug).
+function reset() {
+  const cls = getActive() || "drifter";
+  buildGameFor(cls, getChar(cls));
+}
+
+// Persist the active character's gear + coins to its profile.
+function saveActiveChar() {
+  const cls = getActive();
+  if (cls && player) saveChar(cls, player.toProfile());
+}
+
+// Start playing a class from the title screen — create it if new.
+function startCharacter(cls) {
+  const existed = hasChar(cls);
+  setActive(cls);
+  buildGameFor(cls, getChar(cls)); // getChar() is null for a new character
+  if (!existed) saveActiveChar(); // persist the fresh starting loadout right away
+  banner = { text: `${CLASS_NAMES[cls]} — your quest begins`, t: 2.6, safe: true };
+}
+
+// Save and return to the title screen.
+function returnToTitle() {
+  saveActiveChar();
+  scene = "menu";
+  ui.close();
+  metaUi.close();
+  input.wheelY = 0; // don't carry a gameplay scroll into the menu
+  menu.mode = "main";
+}
+
+const menuApi = { onPlay: (cls) => startCharacter(cls) };
+
+// --- Juice helpers (thin wrappers over the `fx` instance; see fx.js) ---
 function addRing(x, y, r0, r1, life, color, width) {
-  rings.push({ x, y, r0, r1, life, maxLife: life, color, width: width || 3 });
+  fx.ring(x, y, r0, r1, life, color, width);
 }
-
-// --- Juice helpers ---
 function addShake(mag) {
-  shake = Math.min(16, Math.max(shake, mag));
+  fx.kick(mag);
 }
 function addFloater(x, y, text, color, size) {
-  floaters.push({ x: x + (Math.random() - 0.5) * 14, y, text, color, size, life: 0.8, maxLife: 0.8, vy: -46 });
+  fx.floater(x, y, text, color, size);
 }
 function spawnBurst(x, y, n, color, speed, size, life) {
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const s = speed * (0.4 + Math.random() * 0.8);
-    fxParts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: life * (0.6 + Math.random() * 0.6), maxLife: life, size: size * (0.6 + Math.random() * 0.7), color });
-  }
+  fx.burst(x, y, n, color, speed, size, life);
 }
 
-function updateFx(dt) {
-  for (const p of fxParts) {
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.vx *= Math.pow(0.02, dt);
-    p.vy *= Math.pow(0.02, dt);
-    p.life -= dt;
+// Damage numbers, sparks, combo, frost, shake + hit-stop for a set of hits.
+// Shared by melee swings, the Warden contact-dash, AND ranged projectile impacts.
+function spawnHitFx(hits) {
+  if (!hits || !hits.length) return;
+  for (const ht of hits) {
+    addFloater(ht.x, ht.y - ht.r, ht.crit ? `${ht.damage}!` : `${ht.damage}`, ht.crit ? "#ffd166" : "#ffffff", ht.crit ? 22 : 15);
+    spawnBurst(ht.x, ht.y, ht.crit ? 10 : 6, ht.crit ? "#ffd166" : "#ffe9a8", 240, ht.crit ? 3.5 : 2.6, 0.32);
+    if (ht.frost) spawnBurst(ht.x, ht.y, 8, "#bfe8ff", 220, 3, 0.4);
   }
-  fxParts = fxParts.filter((p) => p.life > 0);
-  for (const f of floaters) {
-    f.y += f.vy * dt;
-    f.vy *= Math.pow(0.2, dt);
-    f.life -= dt;
-  }
-  floaters = floaters.filter((f) => f.life > 0);
-  for (const r of rings) r.life -= dt;
-  rings = rings.filter((r) => r.life > 0);
+  combo += hits.length;
+  comboTimer = 2.6;
+  sfx.hit(hits.some((h) => h.crit));
+  const big = hits.some((h) => h.dashStrike || h.crit);
+  addShake(big ? 7 : 3);
+  fx.freeze(big ? 0.06 : 0.03);
 }
 
 // Wild spawns: telegraph a marker, then spawn the creature after a delay.
@@ -213,8 +257,8 @@ function updateToasts(dt) {
 // --- Loot (overworld kills) ---
 function dropLoot(x, y) {
   pickups.push({ kind: "coin", x, y, amount: 2 + Math.floor(Math.random() * 4), t: 0 });
-  if (Math.random() < ITEM_DROP_CHANCE) {
-    const item = makeItem(rollDropTemplate());
+  if (Math.random() < ITEM_DROP_CHANCE + metaBonuses().dropChance) {
+    const item = rollItem(rollDropTemplate(Math.random, player.class));
     pickups.push({ kind: "item", x: x + (Math.random() - 0.5) * 24, y: y + (Math.random() - 0.5) * 24, item, t: 0 });
   }
 }
@@ -245,25 +289,62 @@ function updatePickups(dt) {
   pickups = pickups.filter((p) => !p.collected);
 }
 
-// --- Enemy projectiles ---
+// --- Projectiles (enemy + friendly bow/staff shots, split by `owner`) ---
+function nearestEnemy(x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const d = dist(x, y, e.x, e.y);
+    if (d < bestD) {
+      bestD = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
 function updateProjectiles(dt, level) {
   for (const p of projectiles) {
-    if (p.homing && !player.dead) {
-      const want = Math.atan2(player.y - p.y, player.x - p.x);
-      const cur = Math.atan2(p.vy, p.vx);
-      const sp = Math.hypot(p.vx, p.vy);
-      const na = cur + clamp(angleDiff(want, cur), -2.6 * dt, 2.6 * dt);
-      p.vx = Math.cos(na) * sp;
-      p.vy = Math.sin(na) * sp;
+    const friendly = p.owner === "player";
+    // Homing seeks the player (enemy shots) or the nearest enemy (friendly shots).
+    if (p.homing) {
+      const tgt = friendly ? nearestEnemy(p.x, p.y) : player.dead ? null : player;
+      if (tgt) {
+        const want = Math.atan2(tgt.y - p.y, tgt.x - p.x);
+        const cur = Math.atan2(p.vy, p.vx);
+        const sp = Math.hypot(p.vx, p.vy);
+        const na = cur + clamp(angleDiff(want, cur), -2.6 * dt, 2.6 * dt);
+        p.vx = Math.cos(na) * sp;
+        p.vy = Math.sin(na) * sp;
+      }
     }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.life -= dt;
-    if (!player.dead && dist(p.x, p.y, player.x, player.y) < p.r + player.r) {
+
+    if (friendly) {
+      // Friendly shot: collide with enemies, route hits through the shared FX.
+      for (const e of enemies) {
+        if (e.dead) continue;
+        if (dist(p.x, p.y, e.x, e.y) > p.r + e.r) continue;
+        const crit = Math.random() < Math.min(0.95, player.stats.critChance);
+        const dmg = crit ? Math.round(p.damage * 2) : p.damage;
+        const a = Math.atan2(p.vy, p.vx);
+        e.takeHit(dmg, a, (p.knockback || 80) * (crit ? 1.4 : 1));
+        if (player.stats.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + dmg * player.stats.lifesteal);
+        if (p.chill && !e.dead) e.applyChill(p.chill);
+        spawnHitFx([{ x: e.x, y: e.y, r: e.r, color: e.color, damage: dmg, crit, killed: e.dead, dashStrike: false, frost: !!p.chill }]);
+        p.dead = true;
+        break;
+      }
+      if (p.dead) continue;
+    } else if (!player.dead && dist(p.x, p.y, player.x, player.y) < p.r + player.r) {
       player.takeDamage(p.damage, p.x, p.y);
       p.dead = true;
       continue;
     }
+
     const res = level.resolve(p.x, p.y, p.r);
     if (Math.abs(res.x - p.x) > 0.01 || Math.abs(res.y - p.y) > 0.01) p.dead = true;
     if (p.x < 0 || p.y < 0 || p.x > level.width || p.y > level.height || p.life <= 0) p.dead = true;
@@ -289,9 +370,21 @@ function spawnEnemy() {
 }
 
 // --- Dungeons (room-by-room; one room centered at a time) ---
-function enterDungeon(tierIndex) {
-  returnPos = { x: player.x, y: player.y };
-  dungeon = new Dungeon(tierIndex);
+// `depth` is an open-ended integer (1, 2, 3, ... no cap). Difficulty/rewards
+// scale with depth (see dungeonConfig). Descending keeps your gear + returnPos.
+function enterDungeon(depth, keepReturn = false) {
+  if (!keepReturn) {
+    // Fresh dive from the overworld = the start of a new run.
+    returnPos = { x: player.x, y: player.y };
+    onRun = true;
+    runDeepest = depth;
+    player.coins += metaBonuses().startCoins; // Reserves upgrade
+    runSnapshot = { uids: new Set(player.inventory.map((i) => i.uid)), coins: player.coins };
+  } else {
+    // Descending deeper continues the same run.
+    runDeepest = Math.max(runDeepest, depth);
+  }
+  dungeon = new Dungeon(depth);
   scene = "dungeon";
   const s = dungeon.startPos();
   player.x = s.x;
@@ -304,11 +397,31 @@ function enterDungeon(tierIndex) {
   projectiles = [];
   const it = dungeon.interior;
   portals = [{ x: it.cx - 210, y: it.cy, r: 26, label: "Leave", room: dungeon.rooms[0] }];
-  banner = { text: `${dungeon.biome.name} — Tier ${dungeon.cfg.tier}`, t: 2.8, safe: false };
+  banner = { text: `${dungeon.biome.name} — Depth ${dungeon.depth}`, t: 2.8, safe: false };
   sfx.enterDungeon();
+  // Don't persist mid-run: at-risk loot must NOT be banked by a reload. The
+  // pre-dive loadout was already saved at camp; extraction/death save the result.
+  if (!onRun) saveActiveChar();
 }
 
+// Dive one level deeper from a cleared dungeon, carrying gear forward.
+function descendDungeon() {
+  if (!dungeon) return;
+  enterDungeon(dungeon.depth + 1, true);
+}
+
+// Extract: leave the dungeon SUCCESSFULLY, keeping everything you found and
+// banking shards for how deep you got.
 function exitDungeon() {
+  const depth = runDeepest;
+  if (onRun) {
+    const gained = shardsForRun(depth, true);
+    addShards(gained);
+    lastRunResult = { extracted: true, depth, shards: gained };
+    addToast(`Extracted from Depth ${depth} — loot secured  ·  +${gained} ✦`, "#7fd2ff");
+  }
+  onRun = false;
+  runSnapshot = null;
   scene = "overworld";
   if (returnPos) {
     player.x = returnPos.x;
@@ -321,6 +434,58 @@ function exitDungeon() {
   dungeon = null;
   portals = [];
   banner = { text: "Back in the wilds", t: 1.8, safe: false };
+  saveActiveChar();
+}
+
+// Lose the run: dropped in a dungeon. Forfeit all loot picked up this run (and
+// run coins), but keep a consolation of shards. Respawn back at camp.
+function loseRun() {
+  const depth = runDeepest;
+  const gained = onRun ? shardsForRun(depth, false) : 0;
+  if (onRun) addShards(gained);
+  lastRunResult = { extracted: false, depth, shards: gained };
+
+  if (runSnapshot) {
+    // Remove every item that wasn't in the inventory when the run began.
+    for (const item of [...player.inventory]) {
+      if (!runSnapshot.uids.has(item.uid)) player.removeItem(item);
+    }
+    // Removing a run-found item that was equipped empties its slot. Re-equip a
+    // surviving pre-run item so death never strips the loadout you came in with.
+    for (const slot of SLOTS) {
+      if (player.equipped[slot]) continue;
+      const survivor = player.inventory.find((it) => it.slot === slot && player.canEquip(it));
+      if (survivor) player.equip(survivor);
+    }
+    player.coins = runSnapshot.coins;
+  }
+  onRun = false;
+  runSnapshot = null;
+  respawnAtCamp();
+}
+
+// Send the player back to the camp alive, WITHOUT wiping gear/meta (unlike
+// reset(), which starts a brand-new game). Used after death.
+function respawnAtCamp() {
+  scene = "overworld";
+  dungeon = null;
+  portals = [];
+  enemies = [];
+  pickups = [];
+  projectiles = [];
+  player.x = world.safeZone.x + world.safeZone.w / 2;
+  player.y = world.safeZone.y + world.safeZone.h / 2;
+  player.vx = player.vy = player.ix = player.iy = 0;
+  player.dashTime = 0;
+  player.attackTimer = 0;
+  player.iframe = 0;
+  player.hurtFlash = 0;
+  player.dead = false;
+  player.hp = player.maxHp;
+  prevHp = player.hp;
+  combo = 0;
+  comboTimer = 0;
+  saveActiveChar();
 }
 
 function completeDungeon() {
@@ -329,7 +494,7 @@ function completeDungeon() {
   player.coins += coins;
   addToast(`Dungeon cleared!  +${coins} coins`, "#ffd166");
   for (let i = 0; i < (reward.items || 0); i++) {
-    const item = makeItem(rollDropTemplate());
+    const item = rollItem(rollDropTemplate(Math.random, player.class));
     player.addItem(item);
     addToast(`+ ${item.name}`, RARITIES[item.rarity].color);
   }
@@ -338,7 +503,10 @@ function completeDungeon() {
     addToast("+ Sealed Relic — decode at the Elder", "#ef9f27");
   }
   const it = dungeon.interior;
-  portals.push({ x: it.cx, y: it.cy - 170, r: 30, label: "Exit", room: dungeon.currentRoom });
+  // Two ways out: Exit back to camp, or Descend one level deeper for tougher
+  // foes + better loot (no upper bound — the run is as long as you can survive).
+  portals.push({ x: it.cx - 70, y: it.cy - 170, r: 30, label: "Exit", room: dungeon.currentRoom });
+  portals.push({ x: it.cx + 70, y: it.cy - 170, r: 30, label: "Descend", room: dungeon.currentRoom });
 }
 
 function decodeRelics() {
@@ -349,7 +517,7 @@ function decodeRelics() {
   }
   for (const r of relics) {
     player.removeItem(r);
-    const legend = decodeRelic();
+    const legend = decodeRelic(Math.random, player.class);
     player.addItem(legend);
     addToast(`Decoded: ${legend.name}!`, "#ef9f27");
     sfx.decode();
@@ -421,7 +589,7 @@ const debugApi = {
     addToast("Equipped legendaries", "#ef9f27");
   },
   clearInventory: () => {
-    for (const s of ["weapon", "cloak", "trinket"]) player.unequip(s);
+    for (const s of SLOTS) player.unequip(s);
     player.inventory.length = 0;
     player.recomputeStats();
     addToast("Inventory cleared", "#ff7a7a");
@@ -434,8 +602,31 @@ const debugApi = {
   },
   completeDungeon: () => debugCompleteDungeon(),
   spawnEnemy: (type) => debugSpawnEnemy(type),
-  enterDungeon: (i) => enterDungeon(i),
+  enterDungeon: (depth) => enterDungeon(depth),
+  giveShards: (n) => {
+    addShards(n);
+    addToast(`+${n} ✦ shards`, "#7fd2ff");
+  },
+  get playerClass() {
+    return player.class;
+  },
+  setClass: (id) => {
+    // Save the current character, then load/create the target class's own
+    // profile (don't stamp this player's gear onto another class's save slot).
+    saveActiveChar();
+    startCharacter(id);
+    addToast(`Class: ${id}`, "#9be29a");
+  },
+  toTitle: () => returnToTitle(),
+  resetMeta: () => {
+    resetMeta();
+    player.metaBonus = metaBonuses();
+    player.recomputeStats();
+    addToast("Meta progress reset", "#ff7a7a");
+  },
   toCamp: () => {
+    onRun = false;
+    runSnapshot = null;
     if (scene === "dungeon") exitDungeon();
     player.x = WORLD_W / 2;
     player.y = WORLD_H / 2;
@@ -443,7 +634,10 @@ const debugApi = {
   },
 };
 
-reset();
+// Boot at the title screen. Build a placeholder world/player so nothing is null,
+// but the player isn't committed until they pick a character.
+buildGameFor(getActive() || "drifter", getActive() ? getChar(getActive()) : null);
+scene = "menu";
 
 window.__game = {
   get player() { return player; },
@@ -457,13 +651,22 @@ window.__game = {
   get dungeon() { return dungeon; },
   get portals() { return portals; },
   get projectiles() { return projectiles; },
-  get fx() { return { fxParts, floaters, ambient, rings, spawners, shake, hitStop, combo, comboTimer }; },
+  get fx() { return { parts: fx.parts, floaters: fx.floaters, rings: fx.rings, shake: fx.shake, hitStop: fx.hitStop, ambient, spawners, combo, comboTimer }; },
+  get run() { return { onRun, runDeepest, runSnapshot, lastRunResult, shards: getShards() }; },
   ui,
+  metaUi,
+  menu,
   debug,
   debugApi,
   input,
   enterDungeon,
+  descendDungeon,
   exitDungeon,
+  loseRun,
+  respawnAtCamp,
+  startCharacter,
+  returnToTitle,
+  saveActiveChar,
   step: (dt) => update(dt),
   reset,
 };
@@ -480,6 +683,13 @@ function frame(now) {
 
 function update(dt) {
   const { w, h } = viewSize();
+
+  // Title screen — the menu handles its own input during render().
+  if (scene === "menu") {
+    menu.t += dt;
+    return;
+  }
+
   const level = scene === "dungeon" ? dungeon : world;
 
   // Debug menu (backtick) — pauses everything while open.
@@ -497,14 +707,25 @@ function update(dt) {
 
   // Inventory toggle (works in both scenes).
   if (input.consumePress("i")) {
+    metaUi.close();
     if (ui.isOpen()) ui.close();
     else ui.openInventory();
   }
-  if (input.consumePress("escape")) ui.close();
+  if (input.consumePress("escape")) {
+    if (ui.isOpen() || metaUi.isOpen()) {
+      ui.close();
+      metaUi.close();
+    } else if (scene === "overworld" && world.inSafeZone(player.x, player.y)) {
+      // At camp with nothing open — back to the title (saves your character).
+      returnToTitle();
+      return;
+    }
+  }
 
   if (scene === "overworld") {
     nearShop = !player.dead && dist(player.x, player.y, world.shop.x, world.shop.y) < 78;
     nearElder = !player.dead && dist(player.x, player.y, world.elder.x, world.elder.y) < 72;
+    nearQuartermaster = !player.dead && dist(player.x, player.y, world.quartermaster.x, world.quartermaster.y) < 72;
     nearDungeon = null;
     for (const dg of world.dungeons) {
       if (!player.dead && dist(player.x, player.y, dg.x, dg.y) < dg.r + 36) {
@@ -521,22 +742,27 @@ function update(dt) {
       }
     }
   } else {
-    nearShop = nearElder = false;
+    nearShop = nearElder = nearQuartermaster = false;
     nearDungeon = hoverDungeon = null;
   }
 
-  // Context action (E): shop / elder / enter dungeon / portals.
+  // Context action (E): shop / elder / quartermaster / enter dungeon / portals.
   if (input.consumePress("e")) {
-    if (ui.isOpen() && ui.mode === "shop") ui.close();
+    if (metaUi.isOpen()) metaUi.close();
+    else if (ui.isOpen() && ui.mode === "shop") ui.close();
     else if (scene === "dungeon") {
       const p = portals.find((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
-      if (p) exitDungeon();
+      if (p) {
+        if (p.label === "Descend") descendDungeon();
+        else exitDungeon();
+      }
     } else if (nearElder) decodeRelics();
     else if (nearShop) ui.openShop(shopStock);
-    else if (nearDungeon) enterDungeon(nearDungeon.tierIndex);
+    else if (nearQuartermaster) metaUi.openMeta();
+    else if (nearDungeon) enterDungeon(nearDungeon.tierIndex + 1);
   }
 
-  if (ui.isOpen()) {
+  if (ui.isOpen() || metaUi.isOpen()) {
     camera.follow(player, w, h, level.width, level.height);
     return;
   }
@@ -551,18 +777,21 @@ function update(dt) {
   }
 
   if (player.dead) {
-    if (input.consumeClick() || input.isDown("r", "enter", " ")) reset();
+    if (input.consumeClick() || input.isDown("r", "enter", " ")) {
+      if (onRun) loseRun();
+      else respawnAtCamp();
+    }
     return;
   }
 
   const worldMouse = camera.toWorld(input.mouseX, input.mouseY);
-  const gdt = hitStop > 0 ? 0 : dt; // hit-stop freezes the sim for a few frames
-  if (hitStop > 0) hitStop -= dt;
+  const gdt = fx.hitStop > 0 ? 0 : dt; // hit-stop freezes the sim for a few frames
+  if (fx.hitStop > 0) fx.hitStop -= dt;
 
   player.update(gdt, input, level, worldMouse, enemies);
 
   // Attack / dash start -> sounds + a dash whoosh ring + dust.
-  if (player.isAttacking && !wasAttacking) (player.isDashStrike ? sfx.dashStrike() : sfx.swing());
+  if (player.isAttacking && !wasAttacking) (player.isRanged ? sfx.swing() : player.isDashStrike ? sfx.dashStrike() : sfx.swing());
   if (player.isDashing && !wasDashing) {
     if (player.chainDash) sfx.chain();
     else sfx.dash();
@@ -572,25 +801,28 @@ function update(dt) {
   wasAttacking = player.isAttacking;
   wasDashing = player.isDashing;
 
-  // Attack hits -> damage numbers, sparks, combo, shake, hit-stop.
+  // Auralist frost-blink -> a chilly ring at the launch point.
+  if (player.blinkFx) {
+    addRing(player.x, player.y, player.r * 0.5, player.r * 3.2, 0.34, "#9fd8ff", 4);
+    spawnBurst(player.x, player.y, 10, "#cdeeff", 200, 3, 0.45);
+    player.blinkFx = false;
+  }
+
+  // Player attack: spawn a ranged shot if one is pending (bow/staff).
+  if (player.pendingShot) {
+    const s = player.pendingShot;
+    const pr = makeProjectile(player.x, player.y, s.angle, s.speed, s.damage, s.magic ? "#9fd8ff" : "#ffe2a8", s.homing, s.r, "player");
+    pr.chill = s.chill || 0;
+    pr.knockback = s.knockback || 80;
+    projectiles.push(pr);
+    player.pendingShot = null;
+  }
+
+  // Melee + contact-dash hits -> shared juice (ranged hits route the same way
+  // from updateProjectiles).
   const hits = player.resolveAttack(enemies);
-  for (const ht of hits) {
-    addFloater(ht.x, ht.y - ht.r, ht.crit ? `${ht.damage}!` : `${ht.damage}`, ht.crit ? "#ffd166" : "#ffffff", ht.crit ? 22 : 15);
-    spawnBurst(ht.x, ht.y, ht.crit ? 10 : 6, ht.crit ? "#ffd166" : "#ffe9a8", 240, ht.crit ? 3.5 : 2.6, 0.32);
-  }
-  if (hits.length) {
-    combo += hits.length;
-    comboTimer = 2.6;
-    sfx.hit(hits.some((h) => h.crit));
-    // Signature: frost weapons leave an icy burst on hit.
-    const wid = player.equipped.weapon && player.equipped.weapon.id;
-    if (wid === "frostfang" || wid === "glacier_edge") {
-      for (const ht of hits) spawnBurst(ht.x, ht.y, 8, "#bfe8ff", 220, 3, 0.4);
-    }
-    const big = hits.some((h) => h.dashStrike || h.crit);
-    addShake(big ? 7 : 3);
-    hitStop = Math.max(hitStop, big ? 0.06 : 0.03);
-  }
+  if (player.contactHits.length) hits.push(...player.contactHits);
+  spawnHitFx(hits);
 
   for (const e of enemies) e.update(gdt, player, level, projectiles);
   updateProjectiles(gdt, level);
@@ -600,7 +832,7 @@ function update(dt) {
     const dmg = Math.round(prevHp - player.hp);
     addFloater(player.x, player.y - player.r, `-${dmg}`, "#ff6b6b", 16);
     addShake(4 + Math.min(8, dmg * 0.25));
-    hitStop = Math.max(hitStop, 0.04);
+    fx.freeze(0.04);
     spawnBurst(player.x, player.y, 5, "#ff8a8a", 180, 3, 0.3);
     sfx.hurt();
     combo = 0; // taking damage breaks the combo
@@ -638,6 +870,7 @@ function update(dt) {
         ? { text: "Camp — safe haven", t: 2.4, safe: true }
         : { text: "Leaving camp — creatures ahead", t: 2.4, safe: false };
       prevSafe = inSafe;
+      if (inSafe) saveActiveChar(); // back at camp — persist wilds loot
     }
     player.healing = false;
     if (inSafe && player.hp < player.maxHp) {
@@ -675,8 +908,7 @@ function update(dt) {
   updateSpawners(gdt);
   updateToasts(dt);
   fxClock += dt;
-  shake = Math.max(0, shake - 50 * dt);
-  updateFx(dt);
+  fx.update(dt);
   updateAmbient(dt, w, h);
   camera.follow(player, w, h, level.width, level.height, dt, Math.cos(player.facing), Math.sin(player.facing));
 }
@@ -686,7 +918,7 @@ function handleTreasure() {
   if (room.type !== "treasure" || room.looted) return;
   room.looted = true;
   const it = dungeon.interior;
-  pickups.push({ kind: "item", x: it.cx, y: it.cy - 30, item: makeItem(rollDropTemplate()), t: 0 });
+  pickups.push({ kind: "item", x: it.cx, y: it.cy - 30, item: rollItem(rollDropTemplate(Math.random, player.class)), t: 0 });
   pickups.push({ kind: "coin", x: it.cx - 44, y: it.cy + 20, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
   pickups.push({ kind: "coin", x: it.cx + 44, y: it.cy + 20, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
   addToast("Treasure room!", "#ffd166");
@@ -696,7 +928,7 @@ function onEnemyDeath(e) {
   spawnBurst(e.x, e.y, e.isBoss ? 30 : 10, e.color, e.isBoss ? 360 : 240, e.isBoss ? 5 : 3.4, e.isBoss ? 0.7 : 0.45);
   spawnBurst(e.x, e.y, 6, "#ffffff", 200, 2.4, 0.3);
   addShake(e.isBoss ? 13 : 3);
-  hitStop = Math.max(hitStop, e.isBoss ? 0.12 : 0.03);
+  fx.freeze(e.isBoss ? 0.12 : 0.03);
   sfx.kill(e.isBoss);
 }
 
@@ -705,25 +937,36 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const shx = shake > 0.2 ? (Math.random() * 2 - 1) * shake : 0;
-  const shy = shake > 0.2 ? (Math.random() * 2 - 1) * shake : 0;
+  // Title screen replaces the whole frame.
+  const hintEl = document.getElementById("hint");
+  if (scene === "menu") {
+    if (hintEl) hintEl.style.display = "none";
+    menu.render(ctx, w, h, input, menuApi);
+    return;
+  }
+  if (hintEl) hintEl.style.display = "";
+
+  // Per-frame state bundle for the HUD/overlay draws (hud.js).
+  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock };
+
+  const shx = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
+  const shy = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
   ctx.save();
   ctx.translate(-camera.x + shx, -camera.y + shy);
   if (scene === "dungeon") {
     dungeon.draw(ctx, camera, w, h);
-    drawPortals();
+    drawPortals(view);
   } else {
     world.draw(ctx, camera, w, h);
-    drawPickups();
-    drawSpawners();
+    drawPickups(view);
+    drawSpawners(view);
   }
-  drawAmbient();
+  drawAmbient(view);
   const drawables = [player, ...enemies].sort((a, b) => a.y - b.y);
   for (const d of drawables) d.draw(ctx);
-  drawProjectiles();
-  drawChainTarget();
-  drawFx();
-  drawRings();
+  drawProjectiles(view);
+  drawChainTarget(view);
+  fx.draw(ctx);
   ctx.restore();
 
   ctx.fillStyle = grainPattern;
@@ -734,548 +977,35 @@ function render() {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, w, h);
 
-  drawLowHpVignette(w, h);
+  drawLowHpVignette(view);
 
-  drawHud(w, h);
-  drawBanner(w);
-  drawToasts(w, h);
-  drawDamageIndicator(w, h);
-  drawCombo(w, h);
+  drawHud(view);
+  drawBanner(view);
+  drawToasts(view);
+  drawDamageIndicator(view);
+  drawCombo(view);
 
   if (scene === "dungeon") {
-    drawBossBar(w);
-    drawRoomMap(w);
+    drawBossBar(view);
+    drawRoomMap(view);
     const onPortal = portals.some((p) => p.room === dungeon.currentRoom && dist(player.x, player.y, p.x, p.y) < player.r + p.r);
-    if (onPortal && !ui.isOpen()) drawPrompt("Press E to leave", w, h, "#bff0ff");
+    if (onPortal && !ui.isOpen()) drawPrompt(view, "Press E to leave", "#bff0ff");
   } else {
-    if (!ui.isOpen()) {
-      if (nearElder) drawPrompt("Press E — talk to the Elder", w, h, "#cdd5e2");
-      else if (nearShop) drawPrompt("Press E to shop", w, h, "#ffd166");
-      else if (nearDungeon) drawPrompt(`Press E to enter — ${BIOMES[nearDungeon.biome].name} (T${nearDungeon.tierIndex + 1})`, w, h, tierColor(nearDungeon.tierIndex + 1));
-      if (hoverDungeon) drawEntranceTooltip(hoverDungeon, w, h);
+    if (!ui.isOpen() && !metaUi.isOpen()) {
+      if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");
+      else if (nearShop) drawPrompt(view, "Press E to shop", "#ffd166");
+      else if (nearQuartermaster) drawPrompt(view, "Press E — spend shards on upgrades", "#7fd2ff");
+      else if (nearDungeon) drawPrompt(view, `Press E to enter — ${BIOMES[nearDungeon.biome].name} (Depth ${nearDungeon.tierIndex + 1})`, depthColor(nearDungeon.tierIndex + 1));
+      if (hoverDungeon) drawEntranceTooltip(view, hoverDungeon);
       if (mapMode !== "off") drawMap(ctx, mapMode, { world, player, enemies, camera, viewW: w, viewH: h });
     }
   }
 
-  if (player.dead) drawGameOver(w, h);
+  if (player.dead) drawGameOver(view);
   if (ui.isOpen()) ui.render(ctx, w, h, player, input);
+  if (metaUi.isOpen()) metaUi.render(ctx, w, h, player, input);
   if (debug.isOpen()) debug.render(ctx, w, h, player, input, debugApi);
 }
 
-function drawProjectiles() {
-  for (const p of projectiles) {
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(0, 0, p.r + 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = p.color;
-    ctx.strokeStyle = "#14110e";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, p.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,0.6)";
-    ctx.beginPath();
-    ctx.arc(-p.r * 0.3, -p.r * 0.3, p.r * 0.32, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-function drawAmbient() {
-  for (const p of ambient) {
-    const a = Math.min(1, p.life / 1.2) * Math.min(1, (p.maxLife - p.life) / 0.5 + 0.3);
-    ctx.globalAlpha = Math.max(0, a);
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawFx() {
-  for (const p of fxParts) {
-    const a = Math.min(1, p.life / p.maxLife);
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.fillStyle = p.color;
-    ctx.shadowColor = p.color;
-    ctx.shadowBlur = 5;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (const f of floaters) {
-    const a = Math.min(1, f.life / 0.4);
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.font = `700 ${f.size}px -apple-system, sans-serif`;
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(10,8,16,0.8)";
-    ctx.strokeText(f.text, f.x, f.y);
-    ctx.fillStyle = f.color;
-    ctx.fillText(f.text, f.x, f.y);
-    ctx.restore();
-  }
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function drawLowHpVignette(w, h) {
-  const frac = player.hp / player.maxHp;
-  if (player.dead || frac > 0.3) return;
-  const intensity = (0.3 - frac) / 0.3; // 0..1
-  const pulse = 0.55 + 0.45 * Math.sin(fxClock * 5);
-  const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7);
-  vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, `rgba(180,20,30,${0.18 + intensity * 0.4 * pulse})`);
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, w, h);
-}
-
-function drawSpawners() {
-  for (const s of spawners) {
-    const p = 1 - s.t / 0.6;
-    ctx.save();
-    ctx.translate(s.x, s.y);
-    ctx.globalAlpha = 0.35 + 0.4 * Math.abs(Math.sin(fxClock * 12));
-    ctx.strokeStyle = "#e24b4a";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, 6 + p * 18, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 0.6;
-    ctx.fillStyle = "#e24b4a";
-    ctx.beginPath();
-    ctx.arc(0, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-function drawRings() {
-  for (const r of rings) {
-    const t = 1 - r.life / r.maxLife;
-    const rad = r.r0 + (r.r1 - r.r0) * t;
-    ctx.save();
-    ctx.globalAlpha = (r.life / r.maxLife) * 0.7;
-    ctx.strokeStyle = r.color;
-    ctx.lineWidth = r.width * (1 - t * 0.6);
-    ctx.beginPath();
-    ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-}
-
-function drawChainTarget() {
-  if (player.chainWindow <= 0 || !player.chainTarget || player.chainTarget.dead) return;
-  const e = player.chainTarget;
-  const pulse = 0.6 + 0.4 * Math.sin(fxClock * 10);
-  ctx.save();
-  ctx.translate(e.x, e.y);
-  ctx.strokeStyle = `rgba(127,227,255,${0.55 + 0.35 * pulse})`;
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.arc(0, 0, e.r + 9 + pulse * 3, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-function drawDamageIndicator(w, h) {
-  if (player.hurtTimer <= 0) return;
-  const a = Math.min(1, player.hurtTimer) * 0.8;
-  const ang = player.hurtDir;
-  const rx = Math.min(w, h) * 0.42;
-  ctx.save();
-  ctx.translate(w / 2 + Math.cos(ang) * rx, h / 2 + Math.sin(ang) * rx);
-  ctx.rotate(ang);
-  ctx.globalAlpha = a;
-  ctx.fillStyle = "#ff4d4d";
-  ctx.beginPath();
-  ctx.moveTo(18, 0);
-  ctx.lineTo(-10, -14);
-  ctx.lineTo(-10, 14);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawCombo(w) {
-  if (combo < 2) return;
-  const x = w / 2;
-  const y = 132;
-  const tier = combo >= 15 ? "#ff5d5d" : combo >= 8 ? "#ff9a3a" : combo >= 4 ? "#ffd166" : "#e9eef6";
-  const scale = 1 + Math.min(0.5, combo * 0.02);
-  ctx.save();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `700 ${Math.round(22 * scale)}px -apple-system, sans-serif`;
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(10,8,16,0.7)";
-  ctx.strokeText(`${combo}× COMBO`, x, y);
-  ctx.fillStyle = tier;
-  ctx.fillText(`${combo}× COMBO`, x, y);
-  const bw = 96;
-  const frac = Math.max(0, comboTimer / 2.6);
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  roundRect(ctx, x - bw / 2, y + 16, bw, 5, 2);
-  ctx.fill();
-  ctx.fillStyle = tier;
-  roundRect(ctx, x - bw / 2, y + 16, bw * frac, 5, 2);
-  ctx.fill();
-  ctx.restore();
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function drawPortals() {
-  for (const p of portals) {
-    if (scene === "dungeon" && p.room && p.room !== dungeon.currentRoom) continue;
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    const pulse = 0.5 + 0.5 * Math.sin(player.scarfWave);
-    ctx.fillStyle = "rgba(120,220,255,0.22)";
-    ctx.beginPath();
-    ctx.arc(0, 0, p.r + pulse * 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#7fe3ff";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, p.r * 0.66, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "#bff0ff";
-    ctx.font = "700 11px -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(p.label, 0, -p.r - 8);
-    ctx.textAlign = "left";
-    ctx.restore();
-  }
-}
-
-function drawPickups() {
-  for (const p of pickups) {
-    const bob = Math.sin(p.t * 4) * 3;
-    ctx.save();
-    ctx.translate(p.x, p.y + bob);
-    ctx.fillStyle = "rgba(20,24,34,0.18)";
-    ctx.beginPath();
-    ctx.ellipse(0, 8 - bob, 9, 3.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (p.kind === "coin") {
-      ctx.fillStyle = "#f4c531";
-      ctx.strokeStyle = "#9a6e12";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(0, 0, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#ffe27a";
-      ctx.beginPath();
-      ctx.arc(-2, -2, 2.4, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      const col = RARITIES[p.item.rarity].color;
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(0, 0, 14, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = col;
-      ctx.strokeStyle = "#14110e";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, -9);
-      ctx.lineTo(8, 0);
-      ctx.lineTo(0, 10);
-      ctx.lineTo(-8, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-}
-
-function drawPrompt(text, w, h, color) {
-  ctx.textAlign = "center";
-  ctx.font = "600 16px -apple-system, sans-serif";
-  const tw = ctx.measureText(text).width;
-  ctx.fillStyle = "rgba(10,12,20,0.7)";
-  roundRect(ctx, w / 2 - tw / 2 - 16, h - 92, tw + 32, 34, 8);
-  ctx.fill();
-  ctx.fillStyle = color || "#ffd166";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, w / 2, h - 74);
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function drawEntranceTooltip(dg, w, h) {
-  const cfg = DUNGEON_TIERS[dg.tierIndex];
-  const biome = BIOMES[dg.biome];
-  const col = tierColor(cfg.tier);
-  const lines = [
-    [`${biome.name}`, col, "700 15px"],
-    [`Tier ${cfg.tier}  ·  ${cfg.roomCount} rooms + boss (${biome.boss.name})`, "#cdd5e2", "500 12px"],
-    [`Enemies:  HP ×${cfg.hpMult.toFixed(1)}   DMG ×${cfg.dmgMult.toFixed(1)}`, "#ff9a9a", "600 12px"],
-    [`Reward:  ${cfg.reward.coins[0]}–${cfg.reward.coins[1]} coins, ${cfg.reward.items} item(s)${cfg.reward.relic ? " + Relic" : ""}`, "#9be29a", "600 12px"],
-  ];
-  let bw = 0;
-  for (const [t, , f] of lines) {
-    ctx.font = `${f} -apple-system, sans-serif`;
-    bw = Math.max(bw, ctx.measureText(t).width);
-  }
-  bw += 24;
-  const bh = 18 + lines.length * 19;
-  let bx = input.mouseX + 18;
-  let by = input.mouseY + 18;
-  if (bx + bw > w - 8) bx = input.mouseX - bw - 18;
-  if (by + bh > h - 8) by = h - bh - 8;
-  roundRect(ctx, bx, by, bw, bh, 8);
-  ctx.fillStyle = "rgba(12,16,26,0.97)";
-  ctx.fill();
-  ctx.strokeStyle = col;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  let ly = by + 22;
-  for (const [t, c, f] of lines) {
-    ctx.fillStyle = c;
-    ctx.font = `${f} -apple-system, sans-serif`;
-    ctx.fillText(t, bx + 12, ly);
-    ly += 19;
-  }
-}
-
-function drawBossBar(w) {
-  const b = dungeon && dungeon.boss;
-  if (!b || b.dead) return;
-  const bw = Math.min(460, w * 0.6);
-  const bh = 16;
-  const x = (w - bw) / 2;
-  const y = 22;
-  ctx.fillStyle = "rgba(10,12,20,0.62)";
-  roundRect(ctx, x - 6, y - 22, bw + 12, bh + 30, 8);
-  ctx.fill();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#ffd166";
-  ctx.font = "700 13px -apple-system, sans-serif";
-  ctx.fillText(`${(b.name || "Guardian").toUpperCase()} — Tier ${dungeon.cfg.tier}`, w / 2, y - 7);
-  ctx.fillStyle = "#3a2630";
-  roundRect(ctx, x, y, bw, bh, 4);
-  ctx.fill();
-  ctx.fillStyle = "#e24b4a";
-  roundRect(ctx, x, y, bw * (b.hp / b.maxHp), bh, 4);
-  ctx.fill();
-  ctx.textAlign = "left";
-}
-
-// Mini room grid (top-right) showing discovered dungeon rooms.
-function drawRoomMap(w) {
-  const rooms = dungeon.rooms;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const r of rooms) {
-    if (!r.seen) continue;
-    minX = Math.min(minX, r.gx);
-    maxX = Math.max(maxX, r.gx);
-    minY = Math.min(minY, r.gy);
-    maxY = Math.max(maxY, r.gy);
-  }
-  if (!isFinite(minX)) return;
-  const cell = 16;
-  const gap = 3;
-  const cols = maxX - minX + 1;
-  const rowsN = maxY - minY + 1;
-  const panelW = cols * (cell + gap) + gap;
-  const panelH = rowsN * (cell + gap) + gap;
-  const px = w - panelW - 16;
-  const py = 64;
-  ctx.fillStyle = "rgba(12,16,26,0.6)";
-  roundRect(ctx, px - 6, py - 6, panelW + 12, panelH + 12, 8);
-  ctx.fill();
-  for (const r of rooms) {
-    if (!r.seen) continue;
-    const cx = px + (r.gx - minX) * (cell + gap) + gap;
-    const cy = py + (r.gy - minY) * (cell + gap) + gap;
-    let col;
-    if (r === dungeon.currentRoom) col = "#ffd166";
-    else if (r.type === "boss") col = r.cleared ? "#7a5a5a" : "#e24b4a";
-    else if (r.type === "treasure") col = "#e0b84a";
-    else if (r.type === "start") col = "#7fe3ff";
-    else col = r.cleared ? "#5db85d" : "#6a7080";
-    ctx.fillStyle = col;
-    roundRect(ctx, cx, cy, cell, cell, 3);
-    ctx.fill();
-    if (r === dungeon.currentRoom) {
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2;
-      roundRect(ctx, cx, cy, cell, cell, 3);
-      ctx.stroke();
-    }
-    const mark = r.type === "boss" ? "B" : r.type === "treasure" ? "$" : "";
-    if (mark) {
-      ctx.fillStyle = "#1a1620";
-      ctx.font = "700 9px -apple-system, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(mark, cx + cell / 2, cy + cell / 2 + 1);
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
-    }
-  }
-}
-
-function drawToasts(w, h) {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  toasts.forEach((t, i) => {
-    const y = h * 0.38 - i * 28;
-    const alpha = Math.min(1, t.t / 0.6);
-    ctx.globalAlpha = alpha;
-    ctx.font = "600 16px -apple-system, sans-serif";
-    const tw = ctx.measureText(t.text).width;
-    ctx.fillStyle = "rgba(10,12,20,0.6)";
-    roundRect(ctx, w / 2 - tw / 2 - 12, y - 13, tw + 24, 26, 6);
-    ctx.fill();
-    ctx.fillStyle = t.color;
-    ctx.fillText(t.text, w / 2, y + 1);
-    ctx.globalAlpha = 1;
-  });
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-}
-
-function drawBanner(w) {
-  if (!banner) return;
-  const alpha = Math.min(1, banner.t / 0.5);
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.textAlign = "center";
-  ctx.font = "600 22px -apple-system, sans-serif";
-  const tw = ctx.measureText(banner.text).width;
-  ctx.fillStyle = "rgba(10,12,20,0.6)";
-  roundRect(ctx, w / 2 - tw / 2 - 18, 64, tw + 36, 40, 8);
-  ctx.fill();
-  ctx.fillStyle = banner.safe ? "#9be29a" : "#ffd166";
-  ctx.textBaseline = "middle";
-  ctx.fillText(banner.text, w / 2, 85);
-  ctx.restore();
-  ctx.textAlign = "left";
-}
-
-function drawHud(w) {
-  const bw = 240;
-  const bh = 18;
-  const x = 20;
-  const y = 20;
-  ctx.fillStyle = "rgba(10,16,32,0.55)";
-  roundRect(ctx, x - 4, y - 4, bw + 8, bh + 8, 6);
-  ctx.fill();
-  ctx.fillStyle = "#3a4256";
-  roundRect(ctx, x, y, bw, bh, 4);
-  ctx.fill();
-  const frac = player.hp / player.maxHp;
-  ctx.fillStyle = frac > 0.3 ? "#ff5d73" : "#ff2e4d";
-  roundRect(ctx, x, y, bw * frac, bh, 4);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.font = "600 12px -apple-system, sans-serif";
-  ctx.textBaseline = "middle";
-  ctx.fillText(`${Math.ceil(player.hp)} / ${player.maxHp}`, x + 8, y + bh / 2 + 1);
-
-  if (player.healing) {
-    ctx.fillStyle = "#7CFC9B";
-    ctx.font = "700 12px -apple-system, sans-serif";
-    ctx.fillText("✚ healing", x + bw + 12, y + bh / 2 + 1);
-  }
-
-  const dw = bw;
-  const dh = 7;
-  const dy = y + bh + 8;
-  if (player.stats.dashEnabled) {
-    ctx.fillStyle = "#2b3550";
-    roundRect(ctx, x, dy, dw, dh, 3);
-    ctx.fill();
-    const charge = player.dashCharge;
-    ctx.fillStyle = charge >= 1 ? "#5be3ff" : "rgba(91,227,255,0.5)";
-    roundRect(ctx, x, dy, dw * charge, dh, 3);
-    ctx.fill();
-    ctx.fillStyle = charge >= 1 ? "#bdeeff" : "#7d8aa6";
-    ctx.font = "700 10px -apple-system, sans-serif";
-    ctx.textBaseline = "middle";
-    ctx.fillText("DASH", x + dw + 8, dy + dh / 2 + 1);
-  }
-
-  ctx.textBaseline = "alphabetic";
-  if (scene === "dungeon") {
-    const cleared = dungeon.rooms.filter((r) => r.cleared && r.type !== "start").length;
-    const total = dungeon.rooms.filter((r) => r.type !== "start").length;
-    ctx.font = "700 11px -apple-system, sans-serif";
-    ctx.fillStyle = tierColor(dungeon.cfg.tier);
-    ctx.fillText(`${dungeon.biome.name.toUpperCase()} T${dungeon.cfg.tier}  ·  ROOMS ${cleared}/${total}`, x, dy + dh + 16);
-  } else {
-    const inSafe = world.inSafeZone(player.x, player.y);
-    ctx.font = "700 11px -apple-system, sans-serif";
-    ctx.fillStyle = inSafe ? "#6fb46f" : "#c08a3a";
-    ctx.fillText(inSafe ? "CAMP" : "WILDS", x, dy + dh + 16);
-    ctx.fillStyle = "#7d8aa6";
-    ctx.font = "600 11px -apple-system, sans-serif";
-    ctx.fillText(`M: map (${mapMode})`, x + 70, dy + dh + 16);
-  }
-
-  ctx.textAlign = "right";
-  ctx.font = "700 16px -apple-system, sans-serif";
-  ctx.fillStyle = "#1b2236";
-  ctx.fillText(`Slain: ${kills}`, w - 20, 30);
-  ctx.fillStyle = "#caa12a";
-  ctx.fillText(`◉ ${player.coins}`, w - 20, 52);
-  if (player.godMode) {
-    ctx.fillStyle = "#7CFC9B";
-    ctx.font = "700 12px -apple-system, sans-serif";
-    ctx.fillText("GOD", w - 20, 70);
-  }
-  ctx.textAlign = "left";
-}
-
-function drawGameOver(w, h) {
-  ctx.fillStyle = "rgba(8, 12, 24, 0.6)";
-  ctx.fillRect(0, 0, w, h);
-  ctx.textAlign = "center";
-  ctx.fillStyle = "#fff";
-  ctx.font = "700 48px -apple-system, sans-serif";
-  ctx.fillText("The penguin has fallen", w / 2, h / 2 - 20);
-  ctx.font = "500 20px -apple-system, sans-serif";
-  ctx.fillStyle = "#cdd7ee";
-  ctx.fillText(`Creatures slain: ${kills}  —  click or press R to try again`, w / 2, h / 2 + 24);
-  ctx.textAlign = "left";
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
 
 requestAnimationFrame(frame);

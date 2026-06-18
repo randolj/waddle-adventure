@@ -4,10 +4,6 @@ export function clamp(v, min, max) {
   return v < min ? min : v > max ? max : v;
 }
 
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
 export function dist(ax, ay, bx, by) {
   return Math.hypot(bx - ax, by - ay);
 }
@@ -82,16 +78,13 @@ export function roughBlobPath(ctx, cx, cy, baseR, mults, squashY = 1, rot = 0) {
   ctx.closePath();
 }
 
-// Push a moving circle out of a static circle. Returns adjusted {x, y}.
-export function resolveCircleCollision(x, y, r, cx, cy, cr) {
-  const dx = x - cx;
-  const dy = y - cy;
-  const d = Math.hypot(dx, dy);
-  const minDist = r + cr;
-  if (d > 0 && d < minDist) {
-    const push = (minDist - d) / d;
-    x += dx * push;
-    y += dy * push;
-  }
-  return { x, y };
+// Trace a rounded-rect path (shared by every immediate-mode overlay).
+export function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

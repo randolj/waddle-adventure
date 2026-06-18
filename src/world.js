@@ -1,5 +1,5 @@
 import { mulberry32, randRange, valueNoise, roughOutline, roughBlobPath } from "./utils.js";
-import { tierColor, DUNGEON_TIERS } from "./dungeon.js";
+import { depthColor } from "./dungeon.js";
 import { BIOMES, BIOME_IDS } from "./biomes.js";
 
 const INK = "#191620";
@@ -37,6 +37,9 @@ export class World {
 
     // The bearded elder who decodes relics (press E nearby).
     this.elder = { x: width / 2 - 250, y: height / 2 + 30, r: 30, wave: 0 };
+
+    // The Quartermaster who sells permanent shard upgrades (press E nearby).
+    this.quartermaster = { x: width / 2 + 250, y: height / 2 + 30, r: 30 };
 
     // Dungeon entrances scattered through the wilds, one per difficulty tier.
     // Biomes are laid out as rings around the camp: an inner Tundra circle, a
@@ -268,8 +271,8 @@ export class World {
 
   drawEntrance(ctx, dg) {
     const { x, y, r } = dg;
-    const cfg = DUNGEON_TIERS[dg.tierIndex];
-    const col = tierColor(cfg.tier);
+    const depth = dg.tierIndex + 1;
+    const col = depthColor(depth);
     ctx.save();
     ctx.lineJoin = "round";
 
@@ -322,7 +325,7 @@ export class World {
     ctx.font = "700 14px -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(`T${cfg.tier}`, x, by + 12);
+    ctx.fillText(`D${depth}`, x, by + 12);
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.restore();
@@ -376,6 +379,82 @@ export class World {
 
     this.drawShop(ctx);
     this.drawElder(ctx);
+    this.drawQuartermaster(ctx);
+  }
+
+  drawQuartermaster(ctx) {
+    const qx = this.quartermaster.x;
+    const qy = this.quartermaster.y;
+    const r = 18;
+    ctx.save();
+    ctx.translate(qx, qy);
+    ctx.lineJoin = "round";
+
+    // Shadow.
+    ctx.fillStyle = "rgba(20,24,38,0.24)";
+    ctx.beginPath();
+    ctx.ellipse(0, r * 1.05, r * 1.0, r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body (penguin in a teal quartermaster coat).
+    ctx.fillStyle = "#1f5f6b";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.95, r * 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // White belly.
+    ctx.fillStyle = "#e9eef0";
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.28, r * 0.5, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes.
+    ctx.fillStyle = "#f3efe6";
+    ctx.beginPath();
+    ctx.arc(-r * 0.28, -r * 0.45, r * 0.18, 0, Math.PI * 2);
+    ctx.arc(r * 0.28, -r * 0.45, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#14110e";
+    ctx.beginPath();
+    ctx.arc(-r * 0.28, -r * 0.45, r * 0.09, 0, Math.PI * 2);
+    ctx.arc(r * 0.28, -r * 0.45, r * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Beak.
+    ctx.fillStyle = "#d9821c";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.16, -r * 0.26);
+    ctx.lineTo(r * 0.16, -r * 0.26);
+    ctx.lineTo(0, -r * 0.08);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // A floating shard crystal above (signals the upgrades vendor).
+    ctx.fillStyle = "#7fd2ff";
+    ctx.strokeStyle = "#163040";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.2, -r * 1.5);
+    ctx.lineTo(r * 1.5, -r * 1.1);
+    ctx.lineTo(r * 1.2, -r * 0.7);
+    ctx.lineTo(r * 0.9, -r * 1.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Label.
+    ctx.fillStyle = "rgba(60, 70, 90, 0.7)";
+    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("UPGRADES", 0, -r * 2.0);
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   drawElder(ctx) {

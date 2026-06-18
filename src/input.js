@@ -8,6 +8,7 @@ export class Input {
     this.mouseY = 0;
     this.mouseDown = false;
     this.clicked = false; // true for one frame after a press; cleared by consumeClick()
+    this.wheelY = 0; // accumulated wheel delta; drained by consumeWheel()
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
@@ -32,6 +33,9 @@ export class Input {
     window.addEventListener("mouseup", (e) => {
       if (e.button === 0) this.mouseDown = false;
     });
+    canvas.addEventListener("wheel", (e) => {
+      this.wheelY += e.deltaY;
+    }, { passive: true });
     // Avoid stuck keys when the window loses focus.
     window.addEventListener("blur", () => {
       this.keys.clear();
@@ -66,5 +70,12 @@ export class Input {
     const c = this.clicked;
     this.clicked = false;
     return c;
+  }
+
+  // Drain accumulated wheel delta (positive = scrolled down).
+  consumeWheel() {
+    const d = this.wheelY;
+    this.wheelY = 0;
+    return d;
   }
 }

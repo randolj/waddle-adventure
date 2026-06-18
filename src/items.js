@@ -11,17 +11,47 @@ export const RARITIES = {
 
 export const RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary"];
 
-export const SLOTS = ["weapon", "cloak", "trinket"];
-export const SLOT_NAMES = { weapon: "Weapon", cloak: "Cloak", trinket: "Trinket" };
+export const SLOTS = ["weapon", "armor", "cloak", "trinket"];
+export const SLOT_NAMES = { weapon: "Weapon", armor: "Armor", cloak: "Cloak", trinket: "Trinket" };
+
+// Player classes. Weapons are shared across all; ARMOR is class-locked.
+export const CLASSES = ["drifter", "warden", "auralist"];
+export const CLASS_NAMES = { drifter: "Drifter", warden: "Warden", auralist: "Auralist" };
+
+// Weapon archetypes — each makes the attack resolve differently (see player.js
+// startAttack/resolveAttack). `weaponType` is a top-level item field (read off
+// the equipped weapon directly), NOT a stat mod.
+export const WEAPON_TYPE_NAMES = { sword: "Sword", mace: "Mace", dagger: "Daggers", bow: "Bow", staff: "Staff" };
+export const RANGED_TYPES = new Set(["bow", "staff"]);
 
 // `color` is used for the in-game art (blade tint / scarf fabric).
+// `weaponType` (weapons) and `classes` (armor) are top-level fields, not mods.
 export const ITEM_TEMPLATES = [
-  // --- Weapons (melee) ---
-  { id: "worn_sword", name: "Worn Sword", slot: "weapon", rarity: "common", color: "#8a93a3", desc: "A chipped but trusty blade.", mods: { meleeDamage: 18, attackRange: 24, attackCooldown: -0.12, knockback: 60, attackArc: 0.1 } },
-  { id: "fish_spear", name: "Fish Spear", slot: "weapon", rarity: "uncommon", color: "#6f9a7e", desc: "Long reach, decent poke.", mods: { meleeDamage: 26, attackRange: 40, attackCooldown: -0.12, knockback: 80, attackArc: 0.04 } },
-  { id: "ice_saber", name: "Ice Saber", slot: "weapon", rarity: "rare", color: "#5f86c4", desc: "Fast, cold, and sharp.", mods: { meleeDamage: 34, attackRange: 30, attackCooldown: -0.16, knockback: 90, attackArc: 0.15 } },
-  { id: "frostfang", name: "Frostfang", slot: "weapon", rarity: "epic", color: "#8a6fce", desc: "Bites deep with frost.", mods: { meleeDamage: 46, attackRange: 34, attackCooldown: -0.18, knockback: 120, attackArc: 0.2 } },
-  { id: "glacier_edge", name: "Glacier's Edge", slot: "weapon", rarity: "legendary", color: "#cbb24a", desc: "A sliver of the eternal glacier.", mods: { meleeDamage: 62, attackRange: 42, attackCooldown: -0.2, knockback: 160, attackArc: 0.25 } },
+  // --- Swords (balanced melee arc — the baseline attack) ---
+  { id: "worn_sword", name: "Worn Sword", slot: "weapon", weaponType: "sword", rarity: "common", color: "#8a93a3", desc: "A chipped but trusty blade.", mods: { meleeDamage: 18, attackRange: 24, attackCooldown: -0.12, knockback: 60, attackArc: 0.1 } },
+  { id: "fish_spear", name: "Fish Spear", slot: "weapon", weaponType: "sword", rarity: "uncommon", color: "#6f9a7e", desc: "Long reach, decent poke.", mods: { meleeDamage: 26, attackRange: 40, attackCooldown: -0.12, knockback: 80, attackArc: 0.04 } },
+  { id: "ice_saber", name: "Ice Saber", slot: "weapon", weaponType: "sword", rarity: "rare", color: "#5f86c4", desc: "Fast, cold, and sharp.", mods: { meleeDamage: 34, attackRange: 30, attackCooldown: -0.16, knockback: 90, attackArc: 0.15 } },
+  { id: "frostfang", name: "Frostfang", slot: "weapon", weaponType: "sword", rarity: "epic", color: "#8a6fce", desc: "Bites deep with frost.", mods: { meleeDamage: 46, attackRange: 34, attackCooldown: -0.18, knockback: 120, attackArc: 0.2 } },
+  { id: "glacier_edge", name: "Glacier's Edge", slot: "weapon", weaponType: "sword", rarity: "legendary", color: "#cbb24a", desc: "A sliver of the eternal glacier.", mods: { meleeDamage: 62, attackRange: 42, attackCooldown: -0.2, knockback: 160, attackArc: 0.25 } },
+
+  // --- Maces (slow windup → one heavy, wide, high-knockback cone) ---
+  { id: "ice_mallet", name: "Ice Mallet", slot: "weapon", weaponType: "mace", rarity: "common", color: "#7c8290", desc: "Slow, but it lands.", mods: { meleeDamage: 34, attackRange: 18, attackCooldown: 0.16, knockback: 280, attackArc: 0.55, windup: 0.16, heavy: true } },
+  { id: "frostbreaker", name: "Frostbreaker", slot: "weapon", weaponType: "mace", rarity: "rare", color: "#5f7fc4", desc: "Shatters whatever it meets.", mods: { meleeDamage: 58, attackRange: 24, attackCooldown: 0.18, knockback: 360, attackArc: 0.6, windup: 0.17, heavy: true } },
+  { id: "glacier_maul", name: "Glacier Maul", slot: "weapon", weaponType: "mace", rarity: "legendary", color: "#cbb24a", desc: "An avalanche on a handle.", mods: { meleeDamage: 96, attackRange: 30, attackCooldown: 0.2, knockback: 460, attackArc: 0.7, windup: 0.18, heavy: true } },
+
+  // --- Daggers (fast multi-hit flurry; each sub-hit rolls crit/lifesteal) ---
+  { id: "shiv", name: "Shiv", slot: "weapon", weaponType: "dagger", rarity: "common", color: "#9aa0ac", desc: "Quick little jabs.", mods: { meleeDamage: 9, attackRange: 14, attackCooldown: -0.22, knockback: 30, attackArc: 0.18, hitCount: 2, critChance: 0.05 } },
+  { id: "twin_fangs", name: "Twin Fangs", slot: "weapon", weaponType: "dagger", rarity: "uncommon", color: "#6f9a7e", desc: "A blur of two edges.", mods: { meleeDamage: 12, attackRange: 16, attackCooldown: -0.24, knockback: 36, attackArc: 0.2, hitCount: 2, critChance: 0.07 } },
+  { id: "frost_talons", name: "Frost Talons", slot: "weapon", weaponType: "dagger", rarity: "epic", color: "#8a6fce", desc: "Three frozen slashes a beat.", mods: { meleeDamage: 16, attackRange: 18, attackCooldown: -0.26, knockback: 44, attackArc: 0.22, hitCount: 3, critChance: 0.1 } },
+
+  // --- Bows (ranged physical — fire an arrow; damage = weapon dmg) ---
+  { id: "hunting_bow", name: "Hunting Bow", slot: "weapon", weaponType: "bow", rarity: "common", color: "#9c7a4a", desc: "Keeps trouble at arm's length.", mods: { meleeDamage: 22, attackCooldown: 0.04, knockback: 70, projSpeed: 620, projR: 6 } },
+  { id: "icewind_bow", name: "Icewind Bow", slot: "weapon", weaponType: "bow", rarity: "rare", color: "#5f86c4", desc: "Arrows that whistle cold.", mods: { meleeDamage: 36, attackCooldown: 0, knockback: 90, projSpeed: 700, projR: 7 } },
+  { id: "aurora_longbow", name: "Aurora Longbow", slot: "weapon", weaponType: "bow", rarity: "legendary", color: "#cbb24a", desc: "Looses ribbons of light.", mods: { meleeDamage: 60, attackCooldown: -0.06, knockback: 120, projSpeed: 820, projR: 8 } },
+
+  // --- Staves (ranged magic — homing frost bolt that chills on impact) ---
+  { id: "frost_wand", name: "Frost Wand", slot: "weapon", weaponType: "staff", rarity: "uncommon", color: "#6f7fb0", desc: "Seeks, then freezes.", mods: { meleeDamage: 24, attackCooldown: 0.06, knockback: 60, projSpeed: 380, projR: 9, frostTouch: true } },
+  { id: "blizzard_scepter", name: "Blizzard Scepter", slot: "weapon", weaponType: "staff", rarity: "epic", color: "#8a6fce", desc: "A storm bound to a rod.", mods: { meleeDamage: 42, attackCooldown: 0, knockback: 80, projSpeed: 430, projR: 11, frostTouch: true } },
 
   // --- Cloaks / scarves (grant the dash) ---
   { id: "tattered_scarf", name: "Tattered Scarf", slot: "cloak", rarity: "common", color: "#9a3a3a", desc: "A short, scrappy dash.", mods: { dashEnabled: true, dashSpeed: 900, dashTime: 0.12, dashRest: -0.02 } },
@@ -36,23 +66,42 @@ export const ITEM_TEMPLATES = [
   { id: "swift_charm", name: "Swift Charm", slot: "trinket", rarity: "rare", color: "#3a8ade", desc: "Light on the feet.", mods: { moveSpeed: 45 } },
   { id: "vigor_totem", name: "Vigor Totem", slot: "trinket", rarity: "epic", color: "#9b6ff0", desc: "Hardy and quick.", mods: { maxHp: 45, moveSpeed: 20 } },
   { id: "heart_of_winter", name: "Heart of Winter", slot: "trinket", rarity: "legendary", color: "#ef9f27", desc: "The cold no longer bites.", mods: { maxHp: 70, moveSpeed: 30, dsHitIframe: 0.5 } },
+
+  // --- Class armor (class-locked via `classes`) ---
+  // Drifter — light, crit + mobility.
+  { id: "down_harness", name: "Down Harness", slot: "armor", classes: ["drifter"], rarity: "common", color: "#7fae8a", desc: "Light kit for a quick penguin.", mods: { critChance: 0.04, moveSpeed: 18, dashRest: -0.03 } },
+  { id: "skirmisher_vest", name: "Skirmisher's Vest", slot: "armor", classes: ["drifter"], rarity: "rare", color: "#3f8ad6", desc: "Cut for the dance of the dash.", mods: { critChance: 0.07, moveSpeed: 30, dashRest: -0.05, maxHp: 15 } },
+  { id: "phantom_down", name: "Phantom Down", slot: "armor", classes: ["drifter"], rarity: "legendary", color: "#ef9f27", desc: "Worn by those never quite there.", mods: { critChance: 0.12, moveSpeed: 42, dashRest: -0.07, iframeAfter: 0.04 } },
+  // Warden — heavy, the durability source.
+  { id: "plate_carapace", name: "Plate Carapace", slot: "armor", classes: ["warden"], rarity: "common", color: "#8a8470", desc: "A wall of blubber and bone.", mods: { damageReduction: 0.08, maxHp: 36, moveSpeed: -8 } },
+  { id: "bulwark_shell", name: "Bulwark Shell", slot: "armor", classes: ["warden"], rarity: "rare", color: "#b08a3a", desc: "Nothing gets through easily.", mods: { damageReduction: 0.12, maxHp: 60, knockback: 60 } },
+  { id: "aegis_of_the_floe", name: "Aegis of the Floe", slot: "armor", classes: ["warden"], rarity: "legendary", color: "#ef9f27", desc: "An iceberg that walks.", mods: { damageReduction: 0.18, maxHp: 100, lifesteal: 0.04 } },
+  // Auralist — caster, crit + cooldown + frost.
+  { id: "stormweave_vestment", name: "Stormweave Vestment", slot: "armor", classes: ["auralist"], rarity: "common", color: "#7f8cc0", desc: "Channels the cold cleanly.", mods: { critChance: 0.06, attackCooldown: -0.05, frostTouch: true } },
+  { id: "rime_mantle", name: "Rime Mantle", slot: "armor", classes: ["auralist"], rarity: "rare", color: "#5f9fd6", desc: "Frost gathers at its hem.", mods: { critChance: 0.09, attackCooldown: -0.08, maxHp: 18, frostTouch: true } },
+  { id: "aurora_regalia", name: "Aurora Regalia", slot: "armor", classes: ["auralist"], rarity: "legendary", color: "#ef9f27", desc: "The sky's own vestments.", mods: { critChance: 0.15, attackCooldown: -0.12, maxHp: 30, frostTouch: true } },
 ];
 
 let uidCounter = 1;
 
-export function template(id) {
+// Ensure new items never reuse a uid loaded from a saved character/stash.
+export function bumpUid(n) {
+  if (n >= uidCounter) uidCounter = n + 1;
+}
+
+function template(id) {
   return ITEM_TEMPLATES.find((t) => t.id === id);
 }
 
 // Create a fresh item instance from a template (or template id).
 export function makeItem(templateOrId) {
   const t = typeof templateOrId === "string" ? template(templateOrId) : templateOrId;
-  return { uid: uidCounter++, id: t.id, name: t.name, slot: t.slot, rarity: t.rarity, color: t.color, desc: t.desc, mods: { ...t.mods } };
+  const item = { uid: uidCounter++, id: t.id, name: t.name, slot: t.slot, rarity: t.rarity, color: t.color, desc: t.desc, mods: { ...t.mods } };
+  if (t.weaponType) item.weaponType = t.weaponType; // top-level, not a stat mod
+  if (t.classes) item.classes = [...t.classes]; // class-locked armor
+  return item;
 }
 
-export function rarityColor(rarity) {
-  return (RARITIES[rarity] || RARITIES.common).color;
-}
 
 // Coins you get for selling an item (a fraction of its shop price).
 export function sellValue(item) {
@@ -74,10 +123,87 @@ export function makeSealedRelic() {
   };
 }
 
-// Decode a sealed relic into a random legendary item.
-export function decodeRelic(rng = Math.random) {
-  const legends = ITEM_TEMPLATES.filter((t) => t.rarity === "legendary");
-  return makeItem(legends[Math.floor(rng() * legends.length)]);
+// --- Procedural rolls: each drop gets a quality roll + random affixes ---
+
+// Affixes add a named bonus (prefix/suffix) + stat mods. `slots` limits where
+// they can roll. Values are rolled ~0.7–1.3× the base.
+const AFFIXES = [
+  { id: "sharp", prefix: "Sharp", slots: ["weapon"], mod: { meleeDamage: 9 } },
+  { id: "brutal", prefix: "Brutal", slots: ["weapon"], mod: { meleeDamage: 5, knockback: 90 } },
+  { id: "keen", prefix: "Keen", slots: ["weapon", "trinket", "armor"], mod: { critChance: 0.07 } },
+  { id: "vampiric", prefix: "Vampiric", slots: ["weapon"], mod: { lifesteal: 0.06 } },
+  { id: "long", prefix: "Long", slots: ["weapon"], mod: { attackRange: 16 } },
+  { id: "quick", prefix: "Quick", slots: ["weapon"], mod: { attackCooldown: -0.05 } },
+  { id: "swift", suffix: "Swiftness", slots: ["cloak", "trinket", "armor"], mod: { moveSpeed: 26 } },
+  { id: "vigor", suffix: "Vigor", slots: ["trinket", "cloak", "armor"], mod: { maxHp: 24 } },
+  { id: "warding", suffix: "Warding", slots: ["trinket", "cloak", "armor"], mod: { damageReduction: 0.06 } },
+  { id: "gale", suffix: "the Gale", slots: ["cloak"], mod: { dashSpeed: 120, dashRest: -0.03 } },
+  { id: "phasing", suffix: "Phasing", slots: ["cloak"], mod: { iframeAfter: 0.04 } },
+  { id: "fortune", suffix: "Fortune", slots: ["trinket"], mod: { maxHp: 14, moveSpeed: 14 } },
+];
+
+const AFFIX_COUNT = {
+  common: () => 0,
+  uncommon: () => (Math.random() < 0.5 ? 1 : 0),
+  rare: () => 1,
+  epic: () => 2,
+  legendary: () => (Math.random() < 0.5 ? 3 : 2),
+};
+
+function roundMod(v) {
+  return Math.abs(v) >= 4 ? Math.round(v) : Math.round(v * 100) / 100;
+}
+
+function rollAffixes(slot, count) {
+  const avail = AFFIXES.filter((a) => a.slots.includes(slot));
+  const out = [];
+  for (let i = 0; i < count && avail.length; i++) {
+    const a = avail.splice(Math.floor(Math.random() * avail.length), 1)[0];
+    const roll = 0.7 + Math.random() * 0.6;
+    const mod = {};
+    for (const k of Object.keys(a.mod)) mod[k] = roundMod(a.mod[k] * roll);
+    out.push({ id: a.id, prefix: a.prefix, suffix: a.suffix, label: a.prefix || a.suffix, mod });
+  }
+  return out;
+}
+
+function composeName(base, affixes) {
+  const pre = affixes.find((a) => a.prefix);
+  const suf = affixes.find((a) => a.suffix);
+  let name = pre ? `${pre.prefix} ${base}` : base;
+  if (suf) name += ` of ${suf.suffix}`;
+  return name;
+}
+
+// Mods that are counts/structural — never scaled by quality.
+const NOSCALE_MODS = new Set(["hitCount", "windup", "projR"]);
+
+// Create a procedurally-rolled item (quality variance + affixes).
+export function rollItem(templateOrId) {
+  const t = typeof templateOrId === "string" ? template(templateOrId) : templateOrId;
+  const item = makeItem(t);
+  const q = 0.8 + Math.random() * 0.5; // 0.8..1.3
+  item.quality = Math.round(q * 100);
+  for (const k of Object.keys(item.mods)) {
+    if (typeof item.mods[k] === "number" && !NOSCALE_MODS.has(k)) item.mods[k] = roundMod(item.mods[k] * q);
+  }
+  item.affixes = rollAffixes(t.slot, AFFIX_COUNT[t.rarity]());
+  for (const af of item.affixes) {
+    for (const k of Object.keys(af.mod)) item.mods[k] = roundMod((item.mods[k] || 0) + af.mod[k]);
+  }
+  item.name = composeName(t.name, item.affixes);
+  return item;
+}
+
+// Decode a sealed relic into a random rolled legendary item. A guaranteed reward
+// shouldn't be class-locked armor you can't wear, so exclude off-class armor.
+export function decodeRelic(rng = Math.random, forClass = null) {
+  let legends = ITEM_TEMPLATES.filter((t) => t.rarity === "legendary");
+  if (forClass) {
+    const wearable = legends.filter((t) => !t.classes || t.classes.includes(forClass));
+    if (wearable.length) legends = wearable;
+  }
+  return rollItem(legends[Math.floor(rng() * legends.length)]);
 }
 
 function weightedRarity(rng) {
@@ -90,10 +216,16 @@ function weightedRarity(rng) {
   return "common";
 }
 
-// Roll a rarity, then a random template of that rarity.
-export function rollDropTemplate(rng = Math.random) {
+// Roll a rarity, then a random template of that rarity. `forClass` biases drops
+// AWAY from armor locked to other classes (so a class isn't drowned in gear it
+// can't wear) — off-class armor still slips through ~20% of the time to sell.
+export function rollDropTemplate(rng = Math.random, forClass = null) {
   const rarity = weightedRarity(rng);
-  const pool = ITEM_TEMPLATES.filter((t) => t.rarity === rarity);
+  let pool = ITEM_TEMPLATES.filter((t) => t.rarity === rarity);
+  if (forClass && rng() < 0.8) {
+    const biased = pool.filter((t) => !t.classes || t.classes.includes(forClass));
+    if (biased.length) pool = biased;
+  }
   return pool[Math.floor(rng() * pool.length)];
 }
 
@@ -102,7 +234,7 @@ export function rollShopStock(count = 6, rng = Math.random) {
   const stock = [];
   for (let i = 0; i < count; i++) {
     const t = rollDropTemplate(rng);
-    stock.push({ item: makeItem(t), price: RARITIES[t.rarity].price });
+    stock.push({ item: rollItem(t), price: RARITIES[t.rarity].price });
   }
   return stock;
 }

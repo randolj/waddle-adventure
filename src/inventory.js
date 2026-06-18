@@ -1,7 +1,8 @@
 // Immediate-mode inventory + shop overlay. Drawing and click handling happen
 // together in render(); the caller pauses the game while this is open.
 
-import { RARITIES, SLOTS, SLOT_NAMES, sellValue } from "./items.js";
+import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, sellValue } from "./items.js";
+import { roundRect as rr } from "./utils.js";
 
 const MOD_LABEL = {
   meleeDamage: "dmg",
@@ -16,7 +17,19 @@ const MOD_LABEL = {
   dashRest: "dash cd",
   iframeAfter: "dash i-frames",
   dsHitIframe: "strike i-frames",
+  critChance: "crit",
+  lifesteal: "lifesteal",
+  damageReduction: "dmg resist",
+  projSpeed: "proj speed",
+  projR: "proj size",
+  hitCount: "hits/swing",
+  windup: "windup",
+  heavy: "heavy",
+  frostTouch: "frost",
 };
+
+// Mods stored as 0..1 fractions are shown as percentages.
+const PCT_MODS = new Set(["critChance", "lifesteal", "damageReduction"]);
 
 function trim(v) {
   return Math.round(v * 100) / 100;
@@ -34,24 +47,20 @@ function modsSummary(item) {
   const parts = [];
   for (const [k, v] of Object.entries(item.mods)) {
     if (typeof v === "boolean") {
+      if (!v) continue;
       if (k === "dashEnabled") parts.push("grants dash");
+      else if (k === "heavy") parts.push("heavy");
+      else if (k === "frostTouch") parts.push("frost (chills)");
       continue;
     }
-    parts.push(`${v > 0 ? "+" : ""}${trim(v)} ${MOD_LABEL[k] || k}`);
+    if (PCT_MODS.has(k)) parts.push(`${v > 0 ? "+" : ""}${Math.round(v * 100)}% ${MOD_LABEL[k] || k}`);
+    else parts.push(`${v > 0 ? "+" : ""}${trim(v)} ${MOD_LABEL[k] || k}`);
   }
   return parts.join("  ");
 }
 
-function rr(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
+// Icon dispatch — each item's silhouette reflects its kind: a weapon's archetype
+// (sword/mace/dagger/bow/staff), armor, cloak, or trinket.
 function drawItemIcon(ctx, cx, cy, s, item) {
   const col = item.color || "#aaa";
   ctx.save();
@@ -60,57 +69,202 @@ function drawItemIcon(ctx, cx, cy, s, item) {
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = "#14110e";
   if (item.slot === "weapon") {
-    ctx.rotate(-Math.PI / 4);
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(-2, -s * 0.55);
-    ctx.lineTo(2, -s * 0.55);
-    ctx.lineTo(3, s * 0.12);
-    ctx.lineTo(0, s * 0.26);
-    ctx.lineTo(-3, s * 0.12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#b7913f";
-    ctx.fillRect(-s * 0.24, s * 0.12, s * 0.48, 4);
-    ctx.strokeRect(-s * 0.24, s * 0.12, s * 0.48, 4);
-    ctx.fillStyle = "#5c3517";
-    ctx.fillRect(-2, s * 0.16, 4, s * 0.3);
-    ctx.strokeRect(-2, s * 0.16, 4, s * 0.3);
+    const wt = item.weaponType || "sword";
+    if (wt === "mace") iconMace(ctx, s, col);
+    else if (wt === "dagger") iconDaggers(ctx, s, col);
+    else if (wt === "bow") iconBow(ctx, s, col);
+    else if (wt === "staff") iconStaff(ctx, s, col);
+    else iconSword(ctx, s, col);
+  } else if (item.slot === "armor") {
+    iconArmor(ctx, s, col);
   } else if (item.slot === "cloak") {
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.5, -s * 0.18);
-    ctx.quadraticCurveTo(0, -s * 0.4, s * 0.5, -s * 0.16);
-    ctx.lineTo(s * 0.5, s * 0.02);
-    ctx.quadraticCurveTo(0, -s * 0.2, -s * 0.5, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(s * 0.22, -s * 0.08);
-    ctx.lineTo(s * 0.46, s * 0.46);
-    ctx.lineTo(s * 0.16, s * 0.36);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    iconCloak(ctx, s, col);
   } else {
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(0, -s * 0.45);
-    ctx.lineTo(s * 0.36, -s * 0.04);
-    ctx.lineTo(0, s * 0.45);
-    ctx.lineTo(-s * 0.36, -s * 0.04);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.36, -s * 0.04);
-    ctx.lineTo(s * 0.36, -s * 0.04);
-    ctx.stroke();
+    iconGem(ctx, s, col);
   }
   ctx.restore();
+}
+
+function iconSword(ctx, s, col) {
+  ctx.rotate(-Math.PI / 4);
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-2, -s * 0.55);
+  ctx.lineTo(2, -s * 0.55);
+  ctx.lineTo(3, s * 0.12);
+  ctx.lineTo(0, s * 0.26);
+  ctx.lineTo(-3, s * 0.12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#b7913f";
+  ctx.fillRect(-s * 0.24, s * 0.12, s * 0.48, 4);
+  ctx.strokeRect(-s * 0.24, s * 0.12, s * 0.48, 4);
+  ctx.fillStyle = "#5c3517";
+  ctx.fillRect(-2, s * 0.16, 4, s * 0.3);
+  ctx.strokeRect(-2, s * 0.16, 4, s * 0.3);
+}
+
+function iconMace(ctx, s, col) {
+  // Shaft + a round spiked head.
+  ctx.strokeStyle = "#5c3517";
+  ctx.lineWidth = Math.max(2, s * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(s * 0.32, s * 0.5);
+  ctx.lineTo(-s * 0.12, -s * 0.1);
+  ctx.stroke();
+  ctx.strokeStyle = "#14110e";
+  ctx.lineWidth = 1.5;
+  const hx = -s * 0.2;
+  const hy = -s * 0.22;
+  const hr = s * 0.3;
+  ctx.fillStyle = "#cfd6e0";
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(hx + Math.cos(a) * hr, hy + Math.sin(a) * hr);
+    ctx.lineTo(hx + Math.cos(a) * (hr + s * 0.16), hy + Math.sin(a) * (hr + s * 0.16));
+    ctx.lineTo(hx + Math.cos(a + 0.4) * hr, hy + Math.sin(a + 0.4) * hr);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function iconDaggers(ctx, s, col) {
+  // Two crossed short blades.
+  for (const dir of [-1, 1]) {
+    ctx.save();
+    ctx.translate(dir * s * 0.16, 0);
+    ctx.rotate((dir * Math.PI) / 7);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(-1.6, -s * 0.4);
+    ctx.lineTo(1.6, -s * 0.4);
+    ctx.lineTo(2, s * 0.06);
+    ctx.lineTo(0, s * 0.18);
+    ctx.lineTo(-2, s * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#5c3517";
+    ctx.fillRect(-s * 0.12, s * 0.06, s * 0.24, 3);
+    ctx.strokeRect(-s * 0.12, s * 0.06, s * 0.24, 3);
+    ctx.restore();
+  }
+}
+
+function iconBow(ctx, s, col) {
+  // A drawn bow with a string and nocked arrow.
+  ctx.strokeStyle = col;
+  ctx.lineWidth = Math.max(2, s * 0.16);
+  ctx.beginPath();
+  ctx.arc(s * 0.2, 0, s * 0.5, Math.PI * 0.62, Math.PI * 1.38);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(240,245,255,0.85)";
+  ctx.lineWidth = 1;
+  const ay = Math.sin(Math.PI * 0.62) * s * 0.5;
+  ctx.beginPath();
+  ctx.moveTo(s * 0.2 + Math.cos(Math.PI * 0.62) * s * 0.5, -ay);
+  ctx.lineTo(s * 0.2 + Math.cos(Math.PI * 0.62) * s * 0.5, ay);
+  ctx.stroke();
+  ctx.strokeStyle = "#b7913f";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.42, 0);
+  ctx.lineTo(s * 0.42, 0);
+  ctx.stroke();
+  ctx.fillStyle = "#e6edf6";
+  ctx.beginPath();
+  ctx.moveTo(s * 0.5, 0);
+  ctx.lineTo(s * 0.34, -s * 0.12);
+  ctx.lineTo(s * 0.34, s * 0.12);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function iconStaff(ctx, s, col) {
+  // Rod + glowing orb.
+  ctx.strokeStyle = "#6a4a28";
+  ctx.lineWidth = Math.max(2, s * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(s * 0.12, s * 0.5);
+  ctx.lineTo(-s * 0.06, -s * 0.18);
+  ctx.stroke();
+  ctx.save();
+  ctx.shadowColor = "#9fd8ff";
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = col === "#aaa" ? "#bfe8ff" : col;
+  ctx.strokeStyle = "#14110e";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(-s * 0.1, -s * 0.34, s * 0.26, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath();
+  ctx.arc(-s * 0.18, -s * 0.42, s * 0.08, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function iconArmor(ctx, s, col) {
+  // A breastplate.
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.42, -s * 0.34);
+  ctx.quadraticCurveTo(0, -s * 0.5, s * 0.42, -s * 0.34);
+  ctx.lineTo(s * 0.3, s * 0.36);
+  ctx.lineTo(0, s * 0.5);
+  ctx.lineTo(-s * 0.3, s * 0.36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(20,17,14,0.5)";
+  ctx.beginPath();
+  ctx.moveTo(0, -s * 0.4);
+  ctx.lineTo(0, s * 0.44);
+  ctx.stroke();
+}
+
+function iconCloak(ctx, s, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.5, -s * 0.18);
+  ctx.quadraticCurveTo(0, -s * 0.4, s * 0.5, -s * 0.16);
+  ctx.lineTo(s * 0.5, s * 0.02);
+  ctx.quadraticCurveTo(0, -s * 0.2, -s * 0.5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(s * 0.22, -s * 0.08);
+  ctx.lineTo(s * 0.46, s * 0.46);
+  ctx.lineTo(s * 0.16, s * 0.36);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function iconGem(ctx, s, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(0, -s * 0.45);
+  ctx.lineTo(s * 0.36, -s * 0.04);
+  ctx.lineTo(0, s * 0.45);
+  ctx.lineTo(-s * 0.36, -s * 0.04);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.36, -s * 0.04);
+  ctx.lineTo(s * 0.36, -s * 0.04);
+  ctx.stroke();
 }
 
 export class InventoryUI {
@@ -193,12 +347,15 @@ export class InventoryUI {
     const dashTxt = s.dashEnabled ? `${Math.round(s.dashSpeed * s.dashTime)}px` : "—";
     const stats = [
       ["Damage", s.meleeDamage],
+      ["Crit", `${Math.round((s.critChance || 0) * 100)}%`],
       ["Range", s.attackRange],
       ["Atk/s", trim(1 / s.attackCooldown)],
       ["Move", s.moveSpeed],
       ["Dash", dashTxt],
       ["Max HP", player.maxHp],
     ];
+    if (s.lifesteal > 0) stats.push(["Lifesteal", `${Math.round(s.lifesteal * 100)}%`]);
+    if (s.damageReduction > 0) stats.push(["Resist", `${Math.round(s.damageReduction * 100)}%`]);
     const stripY = py + 50;
     const boxW = (pw - 44) / stats.length;
     stats.forEach((st, i) => {
@@ -220,10 +377,11 @@ export class InventoryUI {
 
     // --- Left: equipment slots (responsive width) ---
     const colW = Math.max(150, Math.min(218, pw * 0.34));
-    const slotH = (contentH - 24) / 3;
+    const slotGap = 10;
+    const slotH = (contentH - slotGap * (SLOTS.length - 1)) / SLOTS.length;
     SLOTS.forEach((slot, i) => {
       const sx = px + 22;
-      const sy = contentY + i * (slotH + 12);
+      const sy = contentY + i * (slotH + slotGap);
       const item = player.equipped[slot];
       const hovered = hit(sx, sy, colW, slotH);
       ctx.fillStyle = hovered && item ? "rgba(255,90,90,0.14)" : "rgba(255,255,255,0.04)";
@@ -357,6 +515,11 @@ export class InventoryUI {
         ctx.fillStyle = "#ef9f27";
         ctx.font = "600 10px -apple-system, sans-serif";
         ctx.fillText("SEALED", listX + listW - 12, ry + 25);
+      } else if (item.classes && !item.classes.includes(player.class)) {
+        // Class-locked armor for a different class.
+        ctx.fillStyle = "#c77";
+        ctx.font = "600 10px -apple-system, sans-serif";
+        ctx.fillText(`${item.classes.map((c) => c[0].toUpperCase() + c.slice(1)).join("/")} only`, listX + listW - 12, ry + 25);
       } else {
         ctx.fillStyle = equipped ? "#7CFC9B" : "#7e8aa0";
         ctx.font = "600 10px -apple-system, sans-serif";
@@ -399,12 +562,30 @@ export class InventoryUI {
   }
 
   drawTooltip(ctx, item, mx, my, w, h) {
-    const lines = [item.name, `${RARITIES[item.rarity].name} ${SLOT_NAMES[item.slot]}`, item.desc, modsSummary(item)];
-    ctx.font = "500 12px -apple-system, sans-serif";
+    const rc = RARITIES[item.rarity].color;
+    const qStr = item.quality ? `  ·  Q${item.quality}%` : "";
+    const typeStr = item.weaponType ? WEAPON_TYPE_NAMES[item.weaponType] + " · " : "";
+    // Each line: [text, color, font].
+    const lines = [
+      [item.name, rc, "600 13px -apple-system, sans-serif"],
+      [`${typeStr}${RARITIES[item.rarity].name} ${SLOT_NAMES[item.slot]}${qStr}`, "#8b97ab", "500 11px -apple-system, sans-serif"],
+      [item.desc, "#cdd5e2", "italic 11px -apple-system, sans-serif"],
+      [modsSummary(item), "#9be29a", "600 11px -apple-system, sans-serif"],
+    ];
+    if (item.classes) {
+      lines.push([`${item.classes.map((c) => c[0].toUpperCase() + c.slice(1)).join(" / ")} only`, "#d39", "600 11px -apple-system, sans-serif"]);
+    }
+    for (const af of item.affixes || []) {
+      lines.push([`✦ ${af.label}`, "#c8a8ff", "600 11px -apple-system, sans-serif"]);
+    }
+
     let tw = 0;
-    for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
+    for (const [t, , f] of lines) {
+      ctx.font = f;
+      tw = Math.max(tw, ctx.measureText(t).width);
+    }
     const bw = tw + 24;
-    const bh = 18 + lines.length * 17;
+    const bh = 16 + lines.length * 17;
     let bx = mx + 16;
     let by = my + 16;
     if (bx + bw > w - 8) bx = mx - bw - 16;
@@ -412,21 +593,16 @@ export class InventoryUI {
     rr(ctx, bx, by, bw, bh, 8);
     ctx.fillStyle = "rgba(12,16,26,0.98)";
     ctx.fill();
-    ctx.strokeStyle = RARITIES[item.rarity].color;
+    ctx.strokeStyle = rc;
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.textAlign = "left";
-    ctx.fillStyle = RARITIES[item.rarity].color;
-    ctx.font = "600 13px -apple-system, sans-serif";
-    ctx.fillText(lines[0], bx + 12, by + 18);
-    ctx.fillStyle = "#8b97ab";
-    ctx.font = "500 11px -apple-system, sans-serif";
-    ctx.fillText(lines[1], bx + 12, by + 35);
-    ctx.fillStyle = "#cdd5e2";
-    ctx.font = "italic 11px -apple-system, sans-serif";
-    ctx.fillText(lines[2], bx + 12, by + 52);
-    ctx.fillStyle = "#9be29a";
-    ctx.font = "600 11px -apple-system, sans-serif";
-    ctx.fillText(lines[3], bx + 12, by + 69);
+    let ty = by + 18;
+    for (const [t, c, f] of lines) {
+      ctx.fillStyle = c;
+      ctx.font = f;
+      ctx.fillText(t, bx + 12, ty);
+      ty += 17;
+    }
   }
 }

@@ -1,0 +1,15 @@
+---
+description: Waddle's Quest — where the project guide lives
+alwaysApply: true
+---
+
+The complete, canonical project guide for this repo is **AGENTS.md** at the root:
+the code map, core conventions (stat system, immediate-mode UI, scene model,
+persistence gotchas), and step-by-step playbooks for adding weapons/classes/
+abilities/enemies/biomes/affixes/upgrades and verifying a change. Read it before
+making changes, and keep its CODE MAP + PLAYBOOKS updated when you add a system.
+
+Essentials: vanilla JS + HTML5 canvas, zero dependencies, zero build step, native
+ES modules (`index.html` loads `src/main.js`). No frameworks, no TypeScript, no
+bundler. Player stats derive entirely from equipped-gear `mods` via
+`recomputeStats()` — never hardcode stats.

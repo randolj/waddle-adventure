@@ -54,9 +54,6 @@ export const BIOMES = {
   },
 };
 
-// Tier index 0..4 maps to a biome (easy -> hard themed regions).
+// Index 0..4 maps to a biome (easy -> hard themed regions). Cycles by depth in
+// dungeons (biomeForDepth) and feeds overworld ring/slice theming.
 export const BIOME_IDS = ["tundra", "cavern", "ember", "verdant", "shadow"];
-
-export function biomeForTier(tierIndex) {
-  return BIOMES[BIOME_IDS[Math.max(0, Math.min(BIOME_IDS.length - 1, tierIndex))]];
-}

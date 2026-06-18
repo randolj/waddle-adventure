@@ -1,19 +1,10 @@
 // Debug overlay — toggle with the backtick (`) key. Gives coins/items, spawns
 // enemies, warps to dungeons, etc. Immediate-mode like the inventory overlay.
 
-import { ITEM_TEMPLATES, RARITIES } from "./items.js";
+import { ITEM_TEMPLATES, RARITIES, SLOTS, CLASSES, CLASS_NAMES } from "./items.js";
 import { ENEMY_TYPES } from "./enemy.js";
-import { DUNGEON_TIERS, tierColor } from "./dungeon.js";
-
-function rr(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
+import { depthColor } from "./dungeon.js";
+import { roundRect as rr } from "./utils.js";
 
 export class DebugMenu {
   constructor() {
@@ -124,6 +115,9 @@ export class DebugMenu {
     button("+100", "#ffd166", () => api.giveCoins(100));
     button("+1000", "#ffd166", () => api.giveCoins(1000));
     button("+10000", "#ffd166", () => api.giveCoins(10000));
+    button("+50 shards", "#7fd2ff", () => api.giveShards(50));
+    button("+500 shards", "#7fd2ff", () => api.giveShards(500));
+    button("Reset meta", "#ff7a7a", () => api.resetMeta());
     button("Full heal", "#7CFC9B", () => api.fullHeal());
     button(`God mode: ${api.godMode ? "ON" : "OFF"}`, api.godMode ? "#7CFC9B" : "#9aa6b1", () => api.toggleGod());
     button(`Sound: ${api.muted ? "OFF" : "ON"}`, api.muted ? "#9aa6b1" : "#7fd6ff", () => api.toggleMute());
@@ -141,10 +135,16 @@ export class DebugMenu {
     section("Spawn enemy");
     for (const type of Object.keys(ENEMY_TYPES)) button(type, "#cdd5e2", () => api.spawnEnemy(type));
 
-    section("Enter dungeon");
-    DUNGEON_TIERS.forEach((t, i) => button(`T${t.tier}`, tierColor(t.tier), () => api.enterDungeon(i)));
+    section("Enter dungeon (depth)");
+    [1, 2, 3, 5, 10, 20].forEach((d) => button(`D${d}`, depthColor(d), () => api.enterDungeon(d)));
 
-    for (const slot of ["weapon", "cloak", "trinket"]) {
+    section("Class");
+    for (const c of CLASSES) {
+      const active = api.playerClass === c;
+      button(CLASS_NAMES[c] + (active ? " ✓" : ""), active ? "#7CFC9B" : "#cdd5e2", () => api.setClass(c));
+    }
+
+    for (const slot of SLOTS) {
       section(`Give ${slot}`);
       for (const t of ITEM_TEMPLATES.filter((x) => x.slot === slot)) {
         button(t.name, RARITIES[t.rarity].color, () => api.giveItem(t));

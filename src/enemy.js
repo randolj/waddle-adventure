@@ -17,8 +17,9 @@ export const ENEMY_TYPES = {
 
 const BOSS_CHARGE_SPEED = 640;
 
-export function makeProjectile(x, y, angle, speed, damage, color, homing, r) {
-  return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: r || 7, damage, life: homing ? 4.5 : 3, color, homing: !!homing };
+export function makeProjectile(x, y, angle, speed, damage, color, homing, r, owner) {
+  // `owner` ('enemy' | 'player') decides who the projectile collides with.
+  return { x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: r || 7, damage, life: homing ? 4.5 : 3, color, homing: !!homing, owner: owner || "enemy" };
 }
 
 export class Enemy {
@@ -66,6 +67,7 @@ export class Enemy {
     this.vy = 0;
     this.hurtFlash = 0;
     this.contactTimer = 0;
+    this.chillTimer = 0; // frost slow (frostTouch / staff / Auralist) — scales speed down
     this.wobble = Math.random() * Math.PI * 2;
 
     this.outline = roughOutline(() => Math.random(), this.isBoss ? 15 : 13, 0.2);
@@ -94,11 +96,20 @@ export class Enemy {
     }
   }
 
+  // Frost slow — bosses shrug off most of it.
+  applyChill(dur) {
+    this.chillTimer = Math.max(this.chillTimer, this.isBoss ? dur * 0.4 : dur);
+  }
+  get effSpeed() {
+    return this.chillTimer > 0 ? this.speed * 0.5 : this.speed;
+  }
+
   update(dt, player, world, projectiles) {
     if (this.dead) return;
     this.wobble += dt * 8;
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
     if (this.contactTimer > 0) this.contactTimer -= dt;
+    if (this.chillTimer > 0) this.chillTimer -= dt;
 
     if (this.isBoss) this.updateBoss(dt, player, projectiles);
     else if (this.ranged) this.updateRanged(dt, player, projectiles);
@@ -132,8 +143,8 @@ export class Enemy {
   updateChase(dt, player) {
     if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
       const a = Math.atan2(player.y - this.y, player.x - this.x);
-      this.x += Math.cos(a) * this.speed * dt;
-      this.y += Math.sin(a) * this.speed * dt;
+      this.x += Math.cos(a) * this.effSpeed * dt;
+      this.y += Math.sin(a) * this.effSpeed * dt;
     }
   }
 
@@ -154,8 +165,8 @@ export class Enemy {
         mvx = Math.cos(a + (Math.PI / 2) * this.strafeDir) * 0.6;
         mvy = Math.sin(a + (Math.PI / 2) * this.strafeDir) * 0.6;
       }
-      this.x += mvx * this.speed * dt;
-      this.y += mvy * this.speed * dt;
+      this.x += mvx * this.effSpeed * dt;
+      this.y += mvy * this.effSpeed * dt;
     }
     this.fireTimer -= dt;
     if (this.fireTimer <= 0 && !player.dead && projectiles) {
@@ -310,8 +321,13 @@ export class Enemy {
     ctx.closePath();
     ctx.fillStyle = flash ? (telegraph ? "#ffd0d0" : "#ffffff") : this.color;
     ctx.fill();
+    // Chilled enemies get a frosty blue wash.
+    if (this.chillTimer > 0 && !flash) {
+      ctx.fillStyle = "rgba(150,210,255,0.34)";
+      ctx.fill();
+    }
     ctx.lineWidth = this.isBoss ? 3.5 : 2.5;
-    ctx.strokeStyle = INK;
+    ctx.strokeStyle = this.chillTimer > 0 && !flash ? "#9fd8ff" : INK;
     ctx.stroke();
 
     if (!flash) {

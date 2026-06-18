@@ -1,19 +1,39 @@
 import { Enemy } from "./enemy.js";
 import { dist, valueNoise } from "./utils.js";
-import { biomeForTier } from "./biomes.js";
+import { BIOMES, BIOME_IDS } from "./biomes.js";
 
-// Difficulty scales enemy HP + damage; layout is a generated room graph.
-export const DUNGEON_TIERS = [
-  { tier: 1, hpMult: 0.8, dmgMult: 0.8, roomCount: 4, enemyBase: 3, boss: { hp: 0.45, dmg: 0.8 }, reward: { coins: [15, 30], items: 1 } },
-  { tier: 2, hpMult: 1.1, dmgMult: 1.0, roomCount: 5, enemyBase: 4, boss: { hp: 0.8, dmg: 1.0 }, reward: { coins: [30, 55], items: 1 } },
-  { tier: 3, hpMult: 1.6, dmgMult: 1.35, roomCount: 6, enemyBase: 4, boss: { hp: 1.3, dmg: 1.35 }, reward: { coins: [60, 100], items: 2 } },
-  { tier: 4, hpMult: 2.3, dmgMult: 1.7, roomCount: 7, enemyBase: 5, boss: { hp: 2.0, dmg: 1.7 }, reward: { coins: [110, 170], items: 2 } },
-  { tier: 5, hpMult: 3.2, dmgMult: 2.2, roomCount: 8, enemyBase: 5, boss: { hp: 3.0, dmg: 2.2 }, reward: { coins: [200, 320], items: 2, relic: true } },
-];
+// Difficulty is driven by a single endless "depth" number. Each level scales
+// enemy HP + damage (and room count + rewards) — you can always go deeper.
+export function dungeonConfig(depth) {
+  const relic = depth >= 5 ? true : Math.random() < Math.max(0, (depth - 2) * 0.1);
+  return {
+    depth,
+    hpMult: 0.8 * Math.pow(1.24, depth - 1),
+    dmgMult: 0.8 * Math.pow(1.16, depth - 1),
+    roomCount: Math.min(11, 3 + Math.floor(depth * 0.7)),
+    enemyBase: Math.min(8, 3 + Math.floor(depth * 0.4)),
+    boss: { hp: 0.45 * Math.pow(1.3, depth - 1), dmg: 0.8 * Math.pow(1.16, depth - 1) },
+    reward: {
+      coins: [Math.round(14 * Math.pow(depth, 1.15)), Math.round(28 * Math.pow(depth, 1.15))],
+      items: depth >= 4 ? 2 : 1,
+      relic,
+    },
+  };
+}
 
-export const TIER_COLORS = ["#b0aea4", "#5db85d", "#3a8ade", "#9b6ff0", "#ef9f27"];
-export function tierColor(tier) {
-  return TIER_COLORS[Math.min(TIER_COLORS.length, Math.max(1, tier)) - 1];
+// Biome cycles by depth (so descending rotates the theme).
+export function biomeForDepth(depth) {
+  return BIOMES[BIOME_IDS[(depth - 1) % BIOME_IDS.length]];
+}
+
+// Color ramps with depth: common→legendary for the first 5, then an escalating
+// "danger" ramp (gold → orange → red → magenta) so endless depths stay distinct.
+const TIER_COLORS = ["#b0aea4", "#5db85d", "#3a8ade", "#9b6ff0", "#ef9f27"];
+const DEEP_COLORS = ["#ef9f27", "#ff7a3c", "#ff5d5d", "#ff4f8b", "#e84bd6", "#c04bff"];
+export function depthColor(depth) {
+  if (depth <= TIER_COLORS.length) return TIER_COLORS[depth - 1];
+  const i = Math.min(DEEP_COLORS.length - 1, depth - TIER_COLORS.length);
+  return DEEP_COLORS[i];
 }
 
 const WALL = 32;
@@ -61,11 +81,11 @@ function resolveRect(x, y, r, rc) {
 }
 
 export class Dungeon {
-  constructor(tierIndex) {
-    this.tierIndex = tierIndex;
-    this.cfg = DUNGEON_TIERS[tierIndex];
-    this.biome = biomeForTier(tierIndex);
-    this.seed = 4000 + tierIndex * 17;
+  constructor(depth) {
+    this.depth = depth;
+    this.cfg = dungeonConfig(depth);
+    this.biome = biomeForDepth(depth);
+    this.seed = 4000 + depth * 17;
     this.width = FULL_W;
     this.height = FULL_H;
     this.complete = false;

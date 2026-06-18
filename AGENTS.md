@@ -1,0 +1,148 @@
+# AGENTS.md — Waddle's Quest
+
+> **Canonical guide for ALL AI coding agents.** Tool-agnostic — read this before changing anything. Each tool's own config just points here, so there's a single source of truth: Claude Code → `CLAUDE.md` imports this; GitHub Copilot → `.github/copilot-instructions.md`; Gemini CLI → `GEMINI.md`; OpenAI Codex / Cursor / Aider / Zed read `AGENTS.md` natively. **Edit THIS file**; leave the pointers alone.
+
+A top-down penguin roguelite (Isaac-style dungeons + an open overworld camp). **Vanilla JS, HTML5 canvas, zero dependencies, zero build step, native ES modules**, served as static files. The loop: roam the overworld, dive into procedurally-generated dungeons through entrances, descend for escalating loot, and **extract** to bank it — die mid-run and you lose everything found that dive. Account-wide **shards** buy permanent upgrades; three playable **classes**, each defined by a base stat block + a dash flavor + class-locked armor.
+
+## Run & Verify
+
+- **Run:** static server from repo root, e.g. `python3 -m http.server`, open `index.html`. `index.html` loads `src/main.js` (the only entry; no bundler).
+- **Verify deterministically — do NOT trust real frames.** The preview throttles `requestAnimationFrame`, so drive the sim by hand: `window.__game.step(1/60)` advances exactly one fixed tick (`step` is bound to `update(dt)`). Loop it: `for (let i=0;i<120;i++) window.__game.step(1/60);` = 2 s of game time regardless of wall clock.
+- **The game boots to `scene='menu'`.** You cannot sim from the menu — `update()` early-returns. First commit a character: `window.__game.startCharacter('drifter')` (or `'warden'`/`'auralist'`), which sets `scene='overworld'`.
+- **`update()` early-return gates** (if `step()` seems to do nothing, check these): `scene==='menu'`, debug pause / inventory open / escape, any UI open, full map open, player dead. Also **hitStop**: after a kill/hit the sim freezes (`gdt=0`) for a few ticks while UI timers keep counting — step a few extra frames past a kill.
+
+### `window.__game` debug surface (built in main.js)
+Getters: `player` (hp, coins, stats, inventory, equipped, dead, x/y), `enemies`, `pickups`, `projectiles`, `scene`, `dungeon`, `portals`, `run` (`{onRun, runDeepest, runSnapshot, lastRunResult, shards}`), `fx` (`{combo, shake, hitStop, ...}`), `world`, `camera`, plus `ui`/`metaUi`/`menu`/`debug`/`debugApi`/`input`.
+Fns: `step(dt)`, `reset()`, `startCharacter(cls)`, `returnToTitle()`, `enterDungeon(depth)`.
+`debugApi` cheats: `giveCoins(n)`, `giveShards(n)`, `giveItem(template)`, `giveRelic()`, `equipLegendaries()`, `clearInventory()`, `killAll()`, `spawnEnemy(type)`, `enterDungeon(depth)`, `completeDungeon()`, `fullHeal()`, `toggleGod()`, `toggleMute()`, `setClass(cls)`, `toTitle()`, `toCamp()`, `resetMeta()`. (On-screen debug menu: backtick key.)
+
+> **Read the real files — do not assume.** Line numbers below are navigation hints, not contracts; they drift.
+
+---
+
+## CODE MAP
+
+`main.js` and `player.js` are the big orchestrators — see their nav hints.
+
+| File | Role | Key exports / symbols |
+|---|---|---|
+| **`main.js`** (~1010) | **Entry point + game loop.** Owns ALL top-level mutable state, the `update(dt)`/`render()` pipeline, scene transitions, run/extraction lifecycle. No exports — side-effecting module that builds `window.__game` and starts RAF. (FX → `fx.js`, HUD draws → `hud.js`.) | `buildGameFor`, `update` (THE sim tick = `__game.step`), `render` (builds the `view` bundle for hud.js), `enterDungeon`/`descendDungeon`/`exitDungeon`/`loseRun`/`respawnAtCamp`/`completeDungeon`, `spawnHitFx`, `updateProjectiles`, `dropLoot`, `debugApi` |
+| **`player.js`** (~620) | **Player class — simulation only.** Movement/dash/attack physics, gear-driven stats, class identity, profile save/load, melee combat resolution. Drawing + particles live in `playerart.js` (mixed onto the prototype at the bottom via `applyPlayerArt(Player)`). | `Player`, `baseStatsFor(cls)`, re-exports `BODY_PALETTE`. Internals: `BASE_COMMON`, `CLASS_BASE`, `STARTER_ARMOR`/`STARTER_WEAPON`, `recomputeStats`, `startAttack`/`resolveAttack`, `startDash` |
+| **`playerart.js`** (~857) | **Penguin/weapon/armor/particle rendering**, mixed onto `Player.prototype` (so methods run with `this`=Player). Owns the rarity visual helpers + `BODY_PALETTE`. | `applyPlayerArt(Player)`, `BODY_PALETTE`. Methods: `draw`, `drawBody`/`drawArmor`/`drawWeapon`+archetypes, `drawScarfTail`/`Neck`, `emitSlash`/`emitShimmer`/`updateParticles`/`drawParticles` |
+| **`hud.js`** (~517) | **HUD + overlay rendering.** Every fn takes the per-frame `view` bundle from main.js `render()` and destructures what it needs. World-space draws (projectiles/pickups/portals/ambient/spawners/chain) run inside the camera transform; the rest are screen-space. | `drawHud`, `drawBanner`, `drawToasts`, `drawCombo`, `drawBossBar`, `drawRoomMap`, `drawGameOver`, `drawDamageIndicator`, `drawLowHpVignette`, `drawPrompt(view,text,color)`, `drawEntranceTooltip(view,dg)`, `drawProjectiles`/`drawPickups`/`drawPortals`/`drawAmbient`/`drawSpawners`/`drawChainTarget` |
+| **`fx.js`** (~103) | **Screen juice** as a single `fx` instance: impact particles, floating damage numbers, expanding rings, screen shake, hit-stop. main.js keeps thin wrappers (`addShake`/`spawnBurst`/`addFloater`/`addRing`) delegating here. | `Fx` (`kick`/`freeze`/`floater`/`burst`/`ring`/`update`/`draw`, props `parts`/`floaters`/`rings`/`shake`/`hitStop`) |
+| **`items.js`** (~245) | **Item catalog + procedural rolls.** Templates, rarities, slots, classes, weapon archetypes; drop/shop/relic logic; how `mods` become stat bonuses. | `RARITIES`, `RARITY_ORDER`, `SLOTS`, `CLASSES`/`CLASS_NAMES`, `WEAPON_TYPE_NAMES`, `RANGED_TYPES`, `ITEM_TEMPLATES`, `makeItem`, `rollItem`, `decodeRelic`, `rollDropTemplate`, `rollShopStock`, `makeSealedRelic`, `sellValue`, `bumpUid` |
+| **`meta.js`** (~183) | **Persistence layer** (localStorage `penguin_meta_v2`). Account progression (shards, upgrades, shared stash) + per-class character profiles + run-reward shard math. Singleton `state` loaded at import. | `UPGRADES`, `metaBonuses()`, `shardsForRun`, `buyUpgrade`/`canBuy`/`nextCost`/`levelOf`, `getChar`/`saveChar`/`deleteChar`, `getActive`/`setActive`, `getStash`/`stashAdd`/`stashTake`, `addShards`, `resetMeta` |
+| **`enemy.js`** (~396) | **Enemy archetypes + Enemy class.** AI (chase / ranged-kite / boss state machines), hit/knockback/chill, projectile factory, rendering. | `ENEMY_TYPES`, `Enemy`, `makeProjectile(...)` (defaults `owner='enemy'`) |
+| **`dungeon.js`** (~351) | **Procedural room-graph dungeon** per depth: difficulty/reward scaling, room geometry/collision/door transitions, enemy spawning, biome rendering. | `Dungeon`, `dungeonConfig(depth)`, `biomeForDepth(depth)`, `depthColor(depth)` |
+| **`biomes.js`** (~62) | **Static biome data table** — palettes, obstacle colors, enemy pool, boss def. | `BIOMES`, `BIOME_IDS` |
+| **`world.js`** (~657) | **Overworld generation + render** — biome rings/slices, camp safe-zone, NPCs, dungeon entrances, obstacles; collision/safe-zone queries. Deterministic from `seed` via one `mulberry32` rng. | `World` (`biomeAt`, `inSafeZone`, `keepOutOfSafe`, `resolve`, `draw`) |
+| **`inventory.js`** (~618) | **Immediate-mode inventory + camp shop overlay** (buy/sell/equip). Draws + handles clicks in `render()`. `drawItemIcon` dispatches per item type. | `InventoryUI` (`openInventory`, `openShop(stock)`, `render(ctx,w,h,player,input)`) |
+| **`metaui.js`** (~188) | **Immediate-mode Quartermaster overlay** — spend shards on `UPGRADES`. Refreshes player stats on purchase. | `MetaUI` |
+| **`menu.js`** (~559) | **Title screen** (`scene='menu'`): class cards (create/play/delete), How-to, class info, shared-stash transfer. Takes `(input, api)` not player; `api.onPlay(cls)` starts a char. | `MenuScreen` |
+| **`debug.js`** (~173) | **Dev debug overlay** (backtick). Auto-flow button grid; all actions delegate to injected `api` (= `debugApi`). Auto-lists `ENEMY_TYPES`, `CLASSES`, `ITEM_TEMPLATES`. | `DebugMenu` |
+| **`minimap.js`** (~185) | **World map renderer** — corner minimap + fullscreen map. Pure rendering, no input. | `drawMap(ctx, mode, data)` |
+| **`input.js`** (~82) | **Keyboard/mouse/wheel input.** Keys are lowercased; edge helpers consume once. | `Input` (`isDown`, `consumePress`, `consumeClick`, `consumeWheel`, `axisX`/`axisY`, `mouseX`/`mouseY`) |
+| **`camera.js`** (~43) | **Follow camera** with eased aim look-ahead, world-clamped. `dt<=0` snaps (teleports). | `Camera` (`follow`, `toWorld`) |
+| **`sfx.js`** (~121) | **Procedural WebAudio SFX** — no asset files. Lazy `AudioContext`; all playback gated by `ready()`. **Call `resumeAudio()` on a user gesture or nothing plays.** | `resumeAudio`, `toggleMute`, `isMuted`, `sfx` |
+| **`utils.js`** (~98) | **Shared math/PRNG/noise + rough-shape drawing.** `mulberry32` is a stateful closure. | `clamp`, `dist`, `angleDiff`, `mulberry32`, `randRange`, `hash2`, `valueNoise`, `roughOutline`, `roughBlobPath`, `roundRect` |
+
+### main.js nav hints
+- **State is split across THREE blocks near the top:** core (world/player/enemies/kills), scene/portal/proximity, run+misc (`onRun`, `runSnapshot`, `combo`, `ambient`, `fxClock`…). Particles/shake/hit-stop now live on the `fx` instance (fx.js). To find a variable, check the three blocks + `fx`.
+- **Combat pipeline in `update()`:** `player.update` → attack/dash sfx+rings → ranged shot via `player.pendingShot → makeProjectile` → melee `resolveAttack` + Warden `contactHits` fed to `spawnHitFx` → `enemy.update` + `updateProjectiles`. Projectile damage resolution lives in `updateProjectiles`.
+- **`hitStop` freezes the whole sim:** `gdt = fx.hitStop>0 ? 0 : dt` — player/enemies/projectiles/spawners use `gdt`, UI timers use real `dt`.
+- **`render()` draw order:** clear → menu short-circuit → build `view` bundle → shake translate → world → ambient → y-sorted entities → projectiles/chain → `fx.draw` → restore → grain → vignette → low-HP vignette → HUD/banner/toasts/combo → dungeon overlays | overworld prompts+minimap → gameOver → UI/meta/debug overlays last. **The `draw*` functions are in hud.js** and take the `view` object built here.
+- **Run/extraction lifecycle is contiguous:** `enterDungeon`, `descendDungeon`, `exitDungeon`, `loseRun`, `respawnAtCamp`, `completeDungeon`.
+
+### player.js nav hints
+- Tuning consts at top: movement, dash/strike, chain-dash (`CHAIN_*`).
+- Stat model: `BASE_COMMON`, `CLASS_BASE`, `baseStatsFor`, `recomputeStats`.
+- Attack intent: `startAttack` (archetype branch), `startDashStrike`; per-frame driving in `update` (windup/multi-hit driver). **Resolution:** `resolveAttack` (melee cone — main.js calls it every frame). Warden contact-dash damage is a SEPARATE path inside `update`, pushed to `contactHits`.
+- **All rendering is in `playerart.js`** (mixed onto the prototype): `draw(ctx)` order = ghosts → particles → shadow → auras → swing arc → scarf → (weapon if behind) → body (+ `drawArmor`) → scarf neck → (weapon if front); weapon dispatch `drawWeapon`. Adding a class's armor silhouette → `drawArmor`; a weapon archetype's look → `drawWeapon` + a `drawX` fn there.
+
+---
+
+## CORE CONVENTIONS (a contributor MUST follow)
+
+### 1. Stat system — gear-derived, class-based
+All player stats = `recomputeStats()` summing every equipped item's `mods` onto `baseStatsFor(class)` (= `BASE_COMMON` + the per-class `CLASS_BASE` override).
+- **Numeric mods ADD; boolean mods OR** (`s[k] = s[k] || v`). A boolean flag (`dashEnabled`, `frostTouch`, `dashContact`, `dashBlink`, `heavy`) can therefore only turn **ON**, never off. The dash literally requires a **cloak** whose mods set `dashEnabled` (`BASE_COMMON.dashEnabled = false`).
+- A mod key MUST exist in `BASE_COMMON` to have a baseline to sum onto. New numeric/boolean stat keys → add a `0`/`false` baseline (the "weapon-archetype" and "dash flavor" blocks at the bottom of `BASE_COMMON`).
+- **`attackCooldown` is floored at 0.05** — stacked `-cooldown` gear can't zero or invert swing rate.
+- `critChance`/`lifesteal`/`damageReduction` are fractions (clamped at use sites). `meleeDamage` doubles as **projectile damage** for bow/staff (snapshotted at shot-build time, not re-read at impact).
+- `_prevMaxHp` reconciles hp when `maxHp` changes; `loadProfile` then full-heals (`hp = maxHp`).
+
+### 2. Immediate-mode canvas UI
+Every overlay (`InventoryUI`, `MetaUI`, `MenuScreen`, `DebugMenu`, `drawMap`) **renders and handles input together each frame** while `update()` pauses the sim. **`input.consumeClick()` is called ONCE per `render()`** and the single boolean is reused for all hit-tests — exactly one action fires per frame, first hit-test wins. Clicking outside the panel / the X closes and early-returns.
+
+### 3. Scene model
+`scene ∈ {'menu','overworld','dungeon'}`. `menu` → `MenuScreen` (api.onPlay starts a char). `overworld` → `World` + camp NPCs + dungeon entrances + wild spawns; **kills drop loot here** (`dropLoot`). `dungeon` → `Dungeon` room graph; **kills give NO per-enemy loot** — dungeon rewards come only from `completeDungeon` + treasure rooms. Room change hard-clears `projectiles` and `pickups`.
+
+### 4. Procedural roll / affix system (items.js)
+`rollItem` applies a quality multiplier `q` (0.8–1.3) to numeric template mods, **except `NOSCALE_MODS = {hitCount, windup, projR}`**, then rolls `AFFIX_COUNT[rarity]()` affixes from `AFFIXES` (each scaled 0.7–1.3×) and merges their mods. `weightedRarity` picks by `RARITIES[r].weight`. Rolls are **NOT seedable** (always `Math.random`). `weaponType` (weapons) and `classes` (armor) are **top-level item fields, not mods**.
+
+### 5. Extraction run loop
+A fresh dive sets `onRun=true` and captures `runSnapshot = {uids: Set, coins}`. **Extract** (`exitDungeon`) banks big shards + keeps all loot. **Die** (`loseRun`) salvages tiny shards, **removes every inventory item whose uid is NOT in `runSnapshot.uids`**, re-equips a surviving pre-run item into any emptied slot, restores `runSnapshot.coins`, and respawns at camp **without wiping gear/meta**. Items found mid-run vanish on death by design.
+
+### 6. Multi-character persistence (meta.js) + GOTCHAS
+Per-class profiles `{coins, items:[...], equipped:{slot: uid|null}}` in localStorage (`penguin_meta_v2`); account `{shards, levels, stash}` shared. Singleton `state` loaded at import; every mutator eager-`save()`s; no reactive notification (re-query getters after mutation).
+- **Saves happen ONLY at safe points:** camp entry, `exitDungeon`, `respawnAtCamp`, `returnToTitle`. **`enterDungeon` deliberately does NOT save while `onRun`** — persisting mid-run would illegitimately bank at-risk loot across a reload. Never add a save inside the run lifecycle.
+- **`Player.constructor` branches on `Array.isArray(profile.items)`**, not length — a returning char who sold everything (`items:[]`) still loads saved coins instead of re-granting starters. Any profile you build MUST have `items` as an array (even empty).
+- **`equipped` stores uids, not item objects** — `loadProfile` re-applies equipped slots by matching uid.
+- **`bumpFromState` (in `load()`) calls `items.bumpUid`** so the module's `uidCounter` never reissues a live uid. Runs once at import. Any NEW save container or item-creation path must be included in its scan or fresh items collide with saved uids.
+
+---
+
+## PLAYBOOKS
+
+### Add a WEAPON template (existing archetype)
+**One `ITEM_TEMPLATES` entry in `items.js` fully wires drops/shop/debug/equip/attack/icon** — every consumer keys off `weaponType`. Required fields: unique `id`, `name`, `slot:"weapon"`, `weaponType` (one of `sword/mace/dagger/bow/staff` — **top-level, NOT inside `mods`**, or it silently behaves as a sword), `rarity`, `color`, `desc`, `mods`. Match the archetype's mod contract: **SWORD** meleeDamage/attackRange/attackCooldown(neg=faster)/knockback/attackArc; **MACE** +`heavy:true`+`windup`(NOSCALE); **DAGGER** +`hitCount`(int, NOSCALE)+usually critChance; **BOW** meleeDamage(=proj dmg)/attackCooldown/knockback/`projSpeed`/`projR`(NOSCALE); **STAFF** like bow +`frostTouch:true`. Optional: starter via `STARTER_WEAPON` (player.js). No HUD/icon edits — `drawItemIcon` dispatches by `weaponType`. **Projectile color is hardcoded in main.js (`s.magic ? '#9fd8ff' : '#ffe2a8'`)**, NOT the item color.
+
+### Add a WEAPON ARCHETYPE (new weaponType)
+Decide MELEE (cone) vs RANGED (projectile) first. (1) `items.js`: add to `WEAPON_TYPE_NAMES`, and to `RANGED_TYPES` **only if ranged** (this Set is the single source of `player.isRanged`, which gates dash-strike suppression, swing-arc drawing, melee-vs-projectile branching). (2) Add a template; new stat key → add a zeroed `BASE_COMMON` baseline (player.js); structural count → add to `NOSCALE_MODS`. (3) Branch `startAttack` (player.js) — insert `else if (wt === "<new>")` **BEFORE the final sword `else`**. Melee → set `pendingHit`/`windupTimer`/`hitsLeft`; ranged → build `pendingShot = {angle,speed,damage,knockback,r,homing,chill,magic}`. (4) Resolution: melee auto-uses `resolveAttack`; ranged auto-uses main.js `updateProjectiles` (generic on `p.owner==="player"`). (5) Add a `drawWeapon` `case` (player.js) or it renders as a sword. (6) Ranged-only: extend the color ternary in main.js for a distinct shot color. (7) Add an inventory icon `else if` in `drawItemIcon` (inventory.js) or it falls back to `iconSword`.
+
+### Add a CLASS (e.g. "reaver")
+**No single registry — the id is a key in ~8 independent tables across 5 files; miss one and the class degrades SILENTLY via `|| default`.** Grep an existing id like `auralist` to find every site.
+1. `items.js`: add to `CLASSES` + `CLASS_NAMES`.
+2. `player.js`: add `CLASS_BASE[id]` (partial override; `setClass` early-returns if absent — this is the "is this a real class" gate; use `{}` for default stats).
+3. Dash flavor via `CLASS_BASE` flags: `dashContact:true` (plow-through) or `dashBlink:true` (frost backstep, no lunge), or neither for plain dash. New flavor = new `BASE_COMMON` boolean + logic in `startDash`/`update`.
+4. `player.js`: add `BODY_PALETTE[id]` (`{base,dark,light,flipper,belly}`).
+5. `player.js`: `STARTER_ARMOR[id]` + `STARTER_WEAPON[id]` (armor MUST point to a template whose `classes` includes id).
+6. `items.js`: add ≥1 class-armor template `{slot:'armor', classes:['<id>'], ...}`; include a `legendary` one so `decodeRelic` has a wearable legendary.
+7. `player.js`: `drawArmor` branches on `armor.classes[0]` (not player.class) — add an `else if (cat === '<id>')` for a distinct silhouette, else generic light-harness.
+8. **`meta.js`: add id to `defaultState().chars` = `null` — REQUIRED. `load()` rebuilds chars from `Object.keys(s.chars)`, so a missing key means the char NEVER persists** (invisible until reload).
+9. `main.js`: add `CLASS_HUD_COLOR[id]`.
+10. `menu.js`: add `CLASS_INFO[id]` + a `drawPenguin` accent `else if`.
+Verify: `startCharacter('<id>')`, step, check `player.class`/`stats`/`equipped`; `returnToTitle()` + reload to prove persistence.
+
+### Add an ABILITY / dash-flavor
+The "ability" IS the dash. (1) Declare a `false` boolean in `BASE_COMMON` (recompute OR's it on). (2) Turn it on in a `CLASS_BASE` override or a cloak's `mods`. (3) **Instant launch burst** → add a block at the end of `startDash` mirroring the Auralist frost-blink (iterate `enemies`, range-test, `e.takeHit`/`e.applyChill`, set FX flag). **Continuous contact** → add to the contact loop in `update`, gated by `dashTime>0 && dashHits && enemies`, skip `dashHits.has(e)`, then `dashHits.add(e)` and push a descriptor to `contactHits` (cleared every frame, drained by main.js `spawnHitFx`). (4) Suppress dash-strike (like Auralist) by adding your flag to the dash-strike condition in `update` and setting `dsWindow=0` in `startDash`. The dash needs `dashEnabled` (a cloak) to fire at all — test with a cloak equipped.
+
+### Add an ENEMY archetype
+One `ENEMY_TYPES` entry (`enemy.js`) + add the id to a biome `pool` (`biomes.js`). AI dispatches by booleans: `isBoss` → `updateBoss`, `ranged` → `updateRanged`, else `updateChase`. **Melee** needs only: `hp, speed, dmg, r, color, spikes, contact`(sec interval)`, mass, eye` (give BASE values — constructor scales by depth). **Ranged** adds `ranged:true` + `pref, fireRange, fireCd, projSpeed, projDmg, projColor, projR` (copy `spitter`); optional `magic`/`homing` (copy `warlock`). **New AI** = a flag + a branch in `update` + a method using DIRECT position writes (`x += cos*effSpeed*dt`), keeping the `|v|>~60` knockback-coast guard. **Pool ids are unvalidated — a typo falls back to `'gremlin'`.** No draw edits needed (generic blobby render + auto HP bar). Boss projectile damage is recomputed (`max(8, round(damage*0.55))`) and IGNORES `projDmg`.
+
+### Add a BIOME
+One `BIOMES` key (`biomes.js`) + id in `BIOME_IDS`. Fields: `name`, `ground` (`[light,dark]` RGB **arrays**), `obstacle` (`{rock,ice}` hex), `floor` (a single RGB **triple** — different shape!), `wall`, `accent`, `pool` (enemy ids), `boss` (`{kind,name,color}`). **`boss.kind` MUST be `'charger'`/`'archer'`/`'caster'`** — the only kinds `enemy.js` handles (unknown silently falls to the ranged-boss branch). `BIOME_IDS` feeds BOTH `biomeForDepth` (dungeon, cycles by modulo — appending makes it reachable) and overworld theming (clamped 0..4). Dungeon-only is fine without `world.js` edits; full overworld region geometry is hardcoded in the `World` constructor (`sliceBiomes`).
+
+### Add an ITEM AFFIX
+Append to the module-private `AFFIXES` array (`items.js`): `{ id, prefix?|suffix?, slots:[...], mod:{...} }`. `composeName` uses only the FIRST prefix + FIRST suffix (all mods still apply). `slots` filters which items it rolls on. **Every `mod` key must be a real stat in `BASE_COMMON`** or it sums but nothing reads it (dead). Values scale 0.7–1.3× per roll then `roundMod` (whole number if `|v|>=4`, else 2 decimals) — set fractional mods (`critChance 0.07`) below 4, whole-number mods (`meleeDamage 9`) at ≥4. Tooltip/summary pick it up automatically — zero UI work.
+
+### Add a RARITY tier
+(1) `RARITIES` entry `{name,color,weight,price}` (`items.js`). (2) Add id to `RARITY_ORDER` (ascending) — exact string must match key + all template `rarity` fields. (3) **`AFFIX_COUNT[id]` entry — REQUIRED, or `rollItem` throws on the first drop/shop/relic roll.** (4) `RARITY_RANK[id]` in `player.js` (visual gating) + `SHIMMER`/`SCARF_FABRIC`/`BLADE_DARK` entries for tints. (5) **Ship ≥1 `ITEM_TEMPLATE` of the tier** — else `rollDropTemplate` can return undefined and crash `rollItem`. `depthColor`/`TIER_COLORS` (dungeon.js) are a PARALLEL system — don't conflate.
+
+### Add a META UPGRADE
+**The entry alone does nothing — you must emit the bonus AND consume it.** (1) `UPGRADES` entry `{id,name,color,max,perLevel,desc:(l)=>,cost:(l)=>}` (`meta.js`); `cost(l)` is the price to reach level l (called as `cost(level+1)`). (2) Add id to `defaultState().levels`. (3) Emit a field from `metaBonuses()` via `levelOf('id')`. (4) **Wire it by hand at a use site** — bonuses are NOT auto-applied. Stat bonuses (`maxHp`, `meleeDamage` today) go in `player.recomputeStats` (`s.<stat> += mb.<field>`); non-stat bonuses follow their site (`dropChance` in `dropLoot`, `shardMult` in `shardsForRun`, `startCoins` in `enterDungeon`). `metaui.js` rows + the live-refresh are generic — no edit. Test: `debugApi.giveShards(500)`, buy at Quartermaster, read `player.stats`, reload to confirm persistence.
+
+### Fix a bug / verify a change
+1. Serve statically; open `index.html`; `startCharacter('drifter')` (can't sim from menu).
+2. Drive with `for(let i=0;i<N;i++) window.__game.step(1/60)`. If nothing happens, check the early-return gates (scene, `ui.isOpen()`, `debug.isOpen()`, `player.dead`) and hitStop.
+3. Inspect via getters (`player.inventory.at(-1)` for `.rarity/.quality/.affixes/.mods`; `run.shards` for meta).
+4. Set up scenarios with `debugApi` (`spawnEnemy`, `killAll`, `enterDungeon`, `giveItem`, `toggleGod`…).
+5. Change ONE thing; compare a measured value before/after across the same step count. Only nondeterminism is `Math.random` (crit/drop/spawn) — isolate with god mode / debug setup.
+6. **Persistence:** perform the change, reload the page (localStorage reloads at import), confirm `player` reflects it. Watch the three gotchas: `Array.isArray(profile.items)` branch, no-save-while-`onRun`, `bumpUid` on load. **Drops are overworld-only** — verify item-drop changes in the overworld, not a dungeon.
+
+---
+
+## Repo cleanup / future structure note
+
+`src/` is intentionally flat (20 files); the table above is the index. The two former giants were split by concern: `main.js` (1580→~1010) shed its FX system → `fx.js` and its HUD/overlay draws → `hud.js`; `player.js` (1459→~620) shed all rendering → `playerart.js` (a prototype mixin). No build step or folders are needed at this size — keep modules small and single-purpose, and update this file's CODE MAP + PLAYBOOKS when you add a system. If `main.js` grows large again, the next candidate to extract is the input/scene-transition handling near the top of `update()`.
