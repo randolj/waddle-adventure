@@ -3,7 +3,7 @@ import { Camera } from "./camera.js";
 import { World } from "./world.js";
 import { Player } from "./player.js";
 import { Enemy, makeProjectile } from "./enemy.js";
-import { Dungeon, dungeonConfig, depthColor } from "./dungeon.js";
+import { Dungeon, dungeonConfig, depthColor, FINAL_DEPTH } from "./dungeon.js";
 import { drawMap } from "./minimap.js";
 import { InventoryUI } from "./inventory.js";
 import { DebugMenu } from "./debug.js";
@@ -11,8 +11,8 @@ import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, d
 import { MetaUI } from "./metaui.js";
 import { MenuScreen } from "./menu.js";
 import { Fx } from "./fx.js";
-import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawBanner, drawHud, drawGameOver } from "./hud.js";
-import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar } from "./meta.js";
+import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
+import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest } from "./meta.js";
 import { BIOMES } from "./biomes.js";
 import { sfx, resumeAudio, toggleMute, isMuted } from "./sfx.js";
 import { dist, angleDiff, clamp } from "./utils.js";
@@ -24,6 +24,7 @@ const SPAWN_INTERVAL = 2.2;
 const MAP_MODES = ["off", "corner", "full"];
 const ITEM_DROP_CHANCE = 0.2;
 const CAMP_HEAL_RATE = 24;
+const RECALL_HOLD = 1.1; // seconds of holding R to recall to camp (overworld only)
 
 // Drifting ambient motes per biome (snow / embers / spores / dust / wisps).
 const AMBIENT = {
@@ -72,7 +73,9 @@ let prevSafe = true;
 let nearShop = false;
 let nearElder = false;
 let nearQuartermaster = false;
+let nearTownShop = null; // the town whose shop the player is standing at
 let nearDungeon = null;
+let recallTimer = 0; // charge while holding R in the overworld; teleports to camp at RECALL_HOLD
 
 // --- Run / extraction state ---
 // A "run" is a dungeon dive. Loot picked up during it is "at risk": extract via
@@ -82,6 +85,8 @@ let runDeepest = 0; // deepest depth reached this run (drives shard payout)
 let runSnapshot = null; // { uids:Set, coins } captured at run start = the safe baseline
 let lastRunResult = null; // { extracted, depth, shards } for the game-over / banner text
 let hoverDungeon = null;
+let victory = false; // showing the win overlay after slaying the final boss
+let victoryHold = 0; // brief input-lockout so mid-combat clicks don't skip the win screen
 // Particles / shake / hit-stop live on the `fx` instance (fx.js). Ambient motes,
 // spawn telegraphs, the combo counter, and footstep timing stay here.
 let ambient, ambientTimer, fxClock, prevHp;
@@ -115,7 +120,8 @@ function buildGameFor(cls, profile) {
   pickups = [];
   toasts = [];
   projectiles = [];
-  shopStock = rollShopStock(6);
+  shopStock = rollShopStock(6, Math.random, 0); // camp shop (tier 0)
+  for (const t of world.towns) t.stock = rollShopStock(6, Math.random, t.tier); // tiered town shops
   spawnTimer = 0.8;
   kills = 0;
   banner = null;
@@ -128,6 +134,8 @@ function buildGameFor(cls, profile) {
   runDeepest = 0;
   runSnapshot = null;
   lastRunResult = null;
+  victory = false;
+  victoryHold = 0;
   fx.reset();
   ambient = [];
   spawners = [];
@@ -139,6 +147,7 @@ function buildGameFor(cls, profile) {
   comboTimer = 0;
   wasAttacking = false;
   wasDashing = false;
+  recallTimer = 0;
   ui.close();
   metaUi.close();
 }
@@ -161,7 +170,9 @@ function startCharacter(cls) {
   setActive(cls);
   buildGameFor(cls, getChar(cls)); // getChar() is null for a new character
   if (!existed) saveActiveChar(); // persist the fresh starting loadout right away
-  banner = { text: `${CLASS_NAMES[cls]} — your quest begins`, t: 2.6, safe: true };
+  banner = hasWon()
+    ? { text: `${CLASS_NAMES[cls]}, Champion of the Deep — descend anew`, t: 3, safe: true }
+    : { text: `The Heart of Winter stirs below — descend to Depth ${FINAL_DEPTH} and still it`, t: 4.2, safe: true };
 }
 
 // Save and return to the title screen.
@@ -207,12 +218,19 @@ function spawnHitFx(hits) {
   fx.freeze(big ? 0.06 : 0.03);
 }
 
+// Scale a wild enemy by the difficulty tier of its spawn region. Far towns sell
+// great gear, but their surrounding enemies hit HARD — no rushing for loot.
+function wildScale(x, y) {
+  const tier = world.tierAt(x, y);
+  return { hp: 1 + tier * 0.45, dmg: 1 + tier * 0.6 };
+}
+
 // Wild spawns: telegraph a marker, then spawn the creature after a delay.
 function updateSpawners(dt) {
   for (const s of spawners) {
     s.t -= dt;
     if (s.t <= 0) {
-      const e = new Enemy(s.x, s.y, s.type);
+      const e = new Enemy(s.x, s.y, s.type, wildScale(s.x, s.y));
       const r = world.resolve(s.x, s.y, e.r);
       e.x = r.x;
       e.y = r.y;
@@ -331,10 +349,10 @@ function updateProjectiles(dt, level) {
         const crit = Math.random() < Math.min(0.95, player.stats.critChance);
         const dmg = crit ? Math.round(p.damage * 2) : p.damage;
         const a = Math.atan2(p.vy, p.vx);
-        e.takeHit(dmg, a, (p.knockback || 80) * (crit ? 1.4 : 1));
-        if (player.stats.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + dmg * player.stats.lifesteal);
+        const dealt = e.takeHit(dmg, a, (p.knockback || 80) * (crit ? 1.4 : 1));
+        if (player.stats.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + dealt * player.stats.lifesteal);
         if (p.chill && !e.dead) e.applyChill(p.chill);
-        spawnHitFx([{ x: e.x, y: e.y, r: e.r, color: e.color, damage: dmg, crit, killed: e.dead, dashStrike: false, frost: !!p.chill }]);
+        spawnHitFx([{ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit, killed: e.dead, dashStrike: false, frost: !!p.chill, blocked: dealt < dmg }]);
         p.dead = true;
         break;
       }
@@ -384,6 +402,7 @@ function enterDungeon(depth, keepReturn = false) {
     // Descending deeper continues the same run.
     runDeepest = Math.max(runDeepest, depth);
   }
+  noteDepth(runDeepest); // record the goal-tracker's deepest-ever (account-wide)
   dungeon = new Dungeon(depth);
   scene = "dungeon";
   const s = dungeon.startPos();
@@ -488,6 +507,33 @@ function respawnAtCamp() {
   saveActiveChar();
 }
 
+// Dismiss the win screen: bank the run (you won, so loot is kept) and return to
+// camp as Champion. Like exitDungeon's banking, but shards were already awarded.
+function finishVictory() {
+  victory = false;
+  onRun = false;
+  runSnapshot = null;
+  scene = "overworld";
+  if (returnPos) {
+    player.x = returnPos.x;
+    player.y = returnPos.y;
+  }
+  player.vx = player.vy = player.ix = player.iy = 0;
+  player.dead = false; // a dying-breath win still returns you alive
+  player.hp = player.maxHp;
+  prevHp = player.hp;
+  player.dashTime = 0;
+  player.attackTimer = 0;
+  player.iframe = 0;
+  enemies = [];
+  pickups = [];
+  projectiles = [];
+  dungeon = null;
+  portals = [];
+  banner = { text: "Champion of the Deep — the long cold recedes", t: 4.5, safe: true };
+  saveActiveChar();
+}
+
 function completeDungeon() {
   const reward = dungeon.cfg.reward;
   const coins = reward.coins[0] + Math.floor(Math.random() * (reward.coins[1] - reward.coins[0] + 1));
@@ -502,6 +548,24 @@ function completeDungeon() {
     player.addItem(makeSealedRelic());
     addToast("+ Sealed Relic — decode at the Elder", "#ef9f27");
   }
+
+  // The final depth's boss is the campaign's last fight — felling it wins.
+  if (dungeon.depth >= FINAL_DEPTH) {
+    const firstWin = !hasWon();
+    markWon();
+    const bonus = 60 + dungeon.depth * 8;
+    addShards(bonus);
+    lastRunResult = { extracted: true, depth: dungeon.depth, shards: bonus, victory: true };
+    sfx.kill(true);
+    if (firstWin) {
+      victory = true; // pause + show the win screen; dismissing banks the run + returns to camp
+      victoryHold = 0.9;
+      return;
+    }
+    // Already a Champion — let endless runs keep going, just bank the bonus.
+    addToast(`The Heart of Winter falls again — Champion!  +${bonus} ✦`, "#bfe3ff");
+  }
+
   const it = dungeon.interior;
   // Two ways out: Exit back to camp, or Descend one level deeper for tougher
   // foes + better loot (no upper bound — the run is as long as you can survive).
@@ -531,7 +595,7 @@ function debugSpawnEnemy(type) {
   const d = 130 + Math.random() * 70;
   let x = Math.max(40, Math.min(level.width - 40, player.x + Math.cos(ang) * d));
   let y = Math.max(40, Math.min(level.height - 40, player.y + Math.sin(ang) * d));
-  const e = new Enemy(x, y, type);
+  const e = new Enemy(x, y, type, scene === "dungeon" ? { hp: 1, dmg: 1 } : wildScale(x, y));
   const r = level.resolve(x, y, e.r);
   e.x = r.x;
   e.y = r.y;
@@ -701,6 +765,7 @@ function update(dt) {
     }
   }
   if (debug.isOpen()) {
+    recallTimer = 0;
     camera.follow(player, w, h, level.width, level.height);
     return;
   }
@@ -715,8 +780,9 @@ function update(dt) {
     if (ui.isOpen() || metaUi.isOpen()) {
       ui.close();
       metaUi.close();
-    } else if (scene === "overworld" && world.inSafeZone(player.x, player.y)) {
-      // At camp with nothing open — back to the title (saves your character).
+    } else if (scene === "overworld" && world.inZone(world.safeZone, player.x, player.y)) {
+      // At the HOME camp with nothing open — back to the title (saves). Towns are
+      // outposts, not the quit point.
       returnToTitle();
       return;
     }
@@ -726,6 +792,13 @@ function update(dt) {
     nearShop = !player.dead && dist(player.x, player.y, world.shop.x, world.shop.y) < 78;
     nearElder = !player.dead && dist(player.x, player.y, world.elder.x, world.elder.y) < 72;
     nearQuartermaster = !player.dead && dist(player.x, player.y, world.quartermaster.x, world.quartermaster.y) < 72;
+    nearTownShop = null;
+    for (const t of world.towns) {
+      if (!player.dead && dist(player.x, player.y, t.shop.x, t.shop.y) < 78) {
+        nearTownShop = t;
+        break;
+      }
+    }
     nearDungeon = null;
     for (const dg of world.dungeons) {
       if (!player.dead && dist(player.x, player.y, dg.x, dg.y) < dg.r + 36) {
@@ -743,6 +816,7 @@ function update(dt) {
     }
   } else {
     nearShop = nearElder = nearQuartermaster = false;
+    nearTownShop = null;
     nearDungeon = hoverDungeon = null;
   }
 
@@ -757,12 +831,14 @@ function update(dt) {
         else exitDungeon();
       }
     } else if (nearElder) decodeRelics();
-    else if (nearShop) ui.openShop(shopStock);
+    else if (nearShop) ui.openShop(shopStock, "Camp shop");
+    else if (nearTownShop) ui.openShop(nearTownShop.stock, `${nearTownShop.name} — tier ${nearTownShop.tier} shop`);
     else if (nearQuartermaster) metaUi.openMeta();
     else if (nearDungeon) enterDungeon(nearDungeon.tierIndex + 1);
   }
 
   if (ui.isOpen() || metaUi.isOpen()) {
+    recallTimer = 0;
     camera.follow(player, w, h, level.width, level.height);
     return;
   }
@@ -771,17 +847,44 @@ function update(dt) {
   if (scene === "overworld") {
     if (input.consumePress("m")) mapMode = MAP_MODES[(MAP_MODES.indexOf(mapMode) + 1) % MAP_MODES.length];
     if (mapMode === "full") {
+      recallTimer = 0;
       camera.follow(player, w, h, world.width, world.height);
       return;
     }
   }
 
+  // Won the final fight — pause on the victory screen until dismissed.
+  if (victory) {
+    if (victoryHold > 0) victoryHold -= dt;
+    else if (input.consumeClick() || input.isDown("r", "enter", " ", "e")) finishVictory();
+    return;
+  }
+
   if (player.dead) {
+    recallTimer = 0; // don't leak a recall bar onto the death screen
     if (input.consumeClick() || input.isDown("r", "enter", " ")) {
       if (onRun) loseRun();
       else respawnAtCamp();
     }
     return;
+  }
+
+  // Hold R out in the overworld to recall to camp (a convenience — not from a
+  // dungeon dive, where leaving is the Exit portal / extraction).
+  if (scene === "overworld" && input.isDown("r") && !world.inZone(world.safeZone, player.x, player.y)) {
+    recallTimer += dt;
+    if (recallTimer >= RECALL_HOLD) {
+      recallTimer = 0;
+      player.x = world.safeZone.x + world.safeZone.w / 2;
+      player.y = world.safeZone.y + world.safeZone.h / 2;
+      player.vx = player.vy = player.ix = player.iy = 0;
+      banner = { text: "Recalled to camp", t: 1.8, safe: true };
+      addRing(player.x, player.y, player.r * 0.6, player.r * 4, 0.4, "#9fe3ff", 4);
+      spawnBurst(player.x, player.y, 14, "#cdeeff", 220, 3, 0.5);
+      saveActiveChar();
+    }
+  } else {
+    recallTimer = 0;
   }
 
   const worldMouse = camera.toWorld(input.mouseX, input.mouseY);
@@ -824,7 +927,8 @@ function update(dt) {
   if (player.contactHits.length) hits.push(...player.contactHits);
   spawnHitFx(hits);
 
-  for (const e of enemies) e.update(gdt, player, level, projectiles);
+  for (const e of enemies) e.update(gdt, player, level, projectiles, enemies);
+  flushEnemySpawns(level); // summoner minions queued during update
   updateProjectiles(gdt, level);
 
   // Player damage feedback.
@@ -840,6 +944,7 @@ function update(dt) {
 
   if (scene === "dungeon") {
     for (const e of enemies) if (e.dead) onEnemyDeath(e);
+    flushEnemySpawns(level); // splitter children queued in onEnemyDeath
     enemies = enemies.filter((e) => !e.dead);
     const roomBefore = dungeon.currentRoom;
     const wasComplete = dungeon.complete;
@@ -853,24 +958,27 @@ function update(dt) {
     updatePickups(dt);
     player.healing = false;
   } else {
-    const before = enemies.length;
+    let killed = 0;
     for (const e of enemies) {
       if (e.dead) {
-        dropLoot(e.x, e.y);
+        if (!e.gen) dropLoot(e.x, e.y); // summoned/split children (gen>0) drop nothing — no parked-summoner farm
         onEnemyDeath(e);
+        killed++;
       }
     }
+    flushEnemySpawns(level); // splitter children queued in onEnemyDeath
     enemies = enemies.filter((e) => !e.dead);
-    kills += before - enemies.length;
+    kills += killed;
     updatePickups(dt);
 
-    const inSafe = world.inSafeZone(player.x, player.y);
+    const safeZone = world.safeZoneAt(player.x, player.y);
+    const inSafe = !!safeZone;
     if (inSafe !== prevSafe) {
       banner = inSafe
-        ? { text: "Camp — safe haven", t: 2.4, safe: true }
-        : { text: "Leaving camp — creatures ahead", t: 2.4, safe: false };
+        ? { text: `${safeZone.name} — safe haven`, t: 2.4, safe: true }
+        : { text: "Back in the wilds — creatures ahead", t: 2.4, safe: false };
       prevSafe = inSafe;
-      if (inSafe) saveActiveChar(); // back at camp — persist wilds loot
+      if (inSafe) saveActiveChar(); // back in a safe town — persist wilds loot
     }
     player.healing = false;
     if (inSafe && player.hp < player.maxHp) {
@@ -924,7 +1032,77 @@ function handleTreasure() {
   addToast("Treasure room!", "#ffd166");
 }
 
+// Build queued child enemies (summoner minions, splitter halves) and add them to
+// the live list, resolved out of walls + clamped in-bounds. Drains each enemy's
+// `spawns` queue. Collected first, pushed after, so we never mutate mid-iterate.
+function flushEnemySpawns(level) {
+  // Overworld: keep summoner output under the same soft ceiling as wild spawns so
+  // a parked summoner can't flood the field. Dungeons have no MAX_ENEMIES cap (the
+  // per-summoner summonCap governs there).
+  const cap = scene === "overworld" ? MAX_ENEMIES : Infinity;
+  const interior = level.interior; // dungeon exposes interior bounds; world doesn't
+  let count = enemies.length;
+  let born = null;
+  for (const e of enemies) {
+    if (!e.spawns || !e.spawns.length) continue;
+    for (const sp of e.spawns) {
+      if (count >= cap) break;
+      const c = new Enemy(sp.x, sp.y, sp.type, { hp: sp.hp || 1, dmg: sp.dmg || 1 });
+      if (sp.gen) c.gen = sp.gen;
+      if (sp.rMul) c.r *= sp.rMul;
+      const rr = level.resolve(c.x, c.y, c.r);
+      if (interior) {
+        // Keep dungeon children inside the room (full bounds would leave them in the wall band).
+        c.x = Math.max(interior.left + c.r, Math.min(interior.right - c.r, rr.x));
+        c.y = Math.max(interior.top + c.r, Math.min(interior.bottom - c.r, rr.y));
+      } else {
+        c.x = Math.max(c.r, Math.min(level.width - c.r, rr.x));
+        c.y = Math.max(c.r, Math.min(level.height - c.r, rr.y));
+        if (level.keepOutOfSafe) {
+          const safe = level.keepOutOfSafe(c.x, c.y, c.r);
+          c.x = safe.x;
+          c.y = safe.y;
+        }
+      }
+      (born || (born = [])).push(c);
+      count++;
+    }
+    e.spawns.length = 0;
+  }
+  if (born) enemies.push(...born);
+}
+
 function onEnemyDeath(e) {
+  // Bomber bursts on death — whether it fused out or got killed first. AoE +
+  // ring; only hurts the player if they're inside the blast.
+  if (e.bomber) {
+    const R = e.boomR;
+    addRing(e.x, e.y, e.r, R, 0.4, "#ff8a3c", 6);
+    spawnBurst(e.x, e.y, 22, "#ff7a3a", 360, 4.2, 0.5);
+    spawnBurst(e.x, e.y, 10, "#ffe2a8", 300, 3, 0.4);
+    addShake(9);
+    fx.freeze(0.05);
+    sfx.kill(false);
+    if (!player.dead && !player.invincible && dist(e.x, e.y, player.x, player.y) < R + player.r) {
+      const before = player.hp;
+      player.takeDamage(e.boomDmg, e.x, e.y);
+      const lost = Math.round(before - player.hp);
+      if (lost > 0) {
+        addFloater(player.x, player.y - player.r, `-${lost}`, "#ff6b6b", 18);
+        sfx.hurt();
+        combo = 0;
+      }
+    }
+    return;
+  }
+  // Splitter cleaves into two smaller, non-splitting copies (flushed right after
+  // this death loop, before the dead parent is filtered out).
+  if (e.splits && e.gen < 1) {
+    for (let i = 0; i < 2; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      e.spawns.push({ x: e.x + Math.cos(ang) * e.r, y: e.y + Math.sin(ang) * e.r, type: e.type, hp: e.spawnScale.hp * 0.5, dmg: e.spawnScale.dmg * 0.7, gen: e.gen + 1, rMul: 0.62 });
+    }
+  }
   spawnBurst(e.x, e.y, e.isBoss ? 30 : 10, e.color, e.isBoss ? 360 : 240, e.isBoss ? 5 : 3.4, e.isBoss ? 0.7 : 0.45);
   spawnBurst(e.x, e.y, 6, "#ffffff", 200, 2.4, 0.3);
   addShake(e.isBoss ? 13 : 3);
@@ -947,7 +1125,7 @@ function render() {
   if (hintEl) hintEl.style.display = "";
 
   // Per-frame state bundle for the HUD/overlay draws (hud.js).
-  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock };
+  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
 
   const shx = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
   const shy = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
@@ -994,14 +1172,17 @@ function render() {
     if (!ui.isOpen() && !metaUi.isOpen()) {
       if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");
       else if (nearShop) drawPrompt(view, "Press E to shop", "#ffd166");
+      else if (nearTownShop) drawPrompt(view, `Press E — shop at ${nearTownShop.name} (tier ${nearTownShop.tier})`, depthColor(nearTownShop.tier + 1));
       else if (nearQuartermaster) drawPrompt(view, "Press E — spend shards on upgrades", "#7fd2ff");
       else if (nearDungeon) drawPrompt(view, `Press E to enter — ${BIOMES[nearDungeon.biome].name} (Depth ${nearDungeon.tierIndex + 1})`, depthColor(nearDungeon.tierIndex + 1));
       if (hoverDungeon) drawEntranceTooltip(view, hoverDungeon);
+      if (recallTimer > 0) drawRecall(view);
       if (mapMode !== "off") drawMap(ctx, mapMode, { world, player, enemies, camera, viewW: w, viewH: h });
     }
   }
 
   if (player.dead) drawGameOver(view);
+  if (victory) drawVictory(view);
   if (ui.isOpen()) ui.render(ctx, w, h, player, input);
   if (metaUi.isOpen()) metaUi.render(ctx, w, h, player, input);
   if (debug.isOpen()) debug.render(ctx, w, h, player, input, debugApi);

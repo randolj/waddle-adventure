@@ -553,11 +553,11 @@ export class Player {
         if (Math.hypot(e.x - this.x, e.y - this.y) > this.r + e.r + 6) continue;
         const dmg = Math.round(this.stats.meleeDamage * 0.9);
         const a = Math.atan2(e.y - this.y, e.x - this.x);
-        e.takeHit(dmg, a, this.stats.knockback * 1.3);
-        if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dmg * this.stats.lifesteal);
+        const dealt = e.takeHit(dmg, a, this.stats.knockback * 1.3);
+        if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dealt * this.stats.lifesteal);
         if (this.stats.frostTouch && !e.dead) e.applyChill(1.4);
         this.dashHits.add(e);
-        this.contactHits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dmg, crit: false, killed: e.dead, dashStrike: true, frost: !!this.stats.frostTouch });
+        this.contactHits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: false, killed: e.dead, dashStrike: true, frost: !!this.stats.frostTouch, blocked: dealt < dmg });
       }
     }
 
@@ -586,10 +586,10 @@ export class Player {
       if (Math.abs(angleDiff(toEnemy, this.facing)) > this.atkArc) continue;
       const crit = Math.random() < Math.min(0.95, this.stats.critChance);
       const dmg = crit ? Math.round(this.atkDamage * 2) : this.atkDamage;
-      e.takeHit(dmg, this.facing, this.atkKnockback * (crit ? 1.4 : 1));
-      if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dmg * this.stats.lifesteal);
+      const dealt = e.takeHit(dmg, this.facing, this.atkKnockback * (crit ? 1.4 : 1));
+      if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dealt * this.stats.lifesteal);
       if (this.stats.frostTouch && !e.dead) e.applyChill(1.4);
-      hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dmg, crit, killed: e.dead, dashStrike: this.isDashStrike, frost: frosty });
+      hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit, killed: e.dead, dashStrike: this.isDashStrike, frost: frosty, blocked: dealt < dmg });
     }
     if (hits.length) {
       this.chainWindow = CHAIN_WINDOW; // a landed hit lets you chain-dash onward

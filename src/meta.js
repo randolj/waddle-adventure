@@ -29,6 +29,8 @@ function defaultState() {
     stash: [],
     active: null, // class id currently being played, or null at the title screen
     chars: { drifter: null, warden: null, auralist: null }, // null = not created yet
+    won: false, // have you slain the final boss? (account-wide Champion flag)
+    deepest: 0, // deepest dungeon depth ever reached (drives the goal tracker)
   };
 }
 
@@ -57,6 +59,8 @@ function load() {
       s.stash = Array.isArray(raw.stash) ? raw.stash : [];
       s.active = raw.active || null;
       for (const cls of Object.keys(s.chars)) s.chars[cls] = (raw.chars && raw.chars[cls]) || null;
+      s.won = !!raw.won;
+      s.deepest = Math.max(0, raw.deepest | 0);
       bumpFromState(s);
       return s;
     }
@@ -117,6 +121,28 @@ export function buyUpgrade(id) {
 export function resetMeta() {
   state = defaultState();
   save();
+}
+
+// --- The campaign goal: descend to the final depth and slay the boss there ---
+export function hasWon() {
+  return !!state.won;
+}
+export function markWon() {
+  if (!state.won) {
+    state.won = true;
+    save();
+  }
+}
+export function getDeepest() {
+  return state.deepest || 0;
+}
+// Record a newly-reached depth (account-wide best). Safe to call mid-run: it
+// banks an achievement stat, not at-risk loot.
+export function noteDepth(d) {
+  if (d > (state.deepest || 0)) {
+    state.deepest = d;
+    save();
+  }
 }
 
 export function metaBonuses() {

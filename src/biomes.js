@@ -9,7 +9,7 @@ export const BIOMES = {
     floor: [50, 54, 66],
     wall: "#2b2f3c",
     accent: "#8fbfe0",
-    pool: ["runt", "gremlin", "stalker"],
+    pool: ["runt", "gremlin", "stalker", "charger"],
     boss: { kind: "charger", name: "Frost Warden", color: "#5a7fb0" },
   },
   cavern: {
@@ -19,7 +19,7 @@ export const BIOMES = {
     floor: [58, 50, 40],
     wall: "#33291f",
     accent: "#c79a5a",
-    pool: ["gremlin", "brute", "spitter"],
+    pool: ["gremlin", "brute", "spitter", "bomber"],
     boss: { kind: "archer", name: "Cave Tyrant", color: "#8a6a3a" },
   },
   ember: {
@@ -29,7 +29,7 @@ export const BIOMES = {
     floor: [60, 34, 28],
     wall: "#3a1c16",
     accent: "#ff7a3a",
-    pool: ["stalker", "spitter", "brute"],
+    pool: ["stalker", "spitter", "brute", "bomber", "charger"],
     boss: { kind: "charger", name: "Ember Colossus", color: "#c2502a" },
   },
   verdant: {
@@ -39,7 +39,7 @@ export const BIOMES = {
     floor: [36, 48, 30],
     wall: "#22301a",
     accent: "#8fd45a",
-    pool: ["runt", "warlock", "gremlin"],
+    pool: ["runt", "warlock", "gremlin", "summoner", "healer"],
     boss: { kind: "caster", name: "Mire Witch", color: "#5a8a3a" },
   },
   shadow: {
@@ -49,7 +49,7 @@ export const BIOMES = {
     floor: [40, 34, 56],
     wall: "#241f34",
     accent: "#9b6ff0",
-    pool: ["warlock", "stalker", "spitter"],
+    pool: ["warlock", "stalker", "spitter", "shielder", "splitter", "summoner"],
     boss: { kind: "caster", name: "Shadow Maw", color: "#7a4fb0" },
   },
 };

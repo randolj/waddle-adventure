@@ -229,12 +229,19 @@ export function rollDropTemplate(rng = Math.random, forClass = null) {
   return pool[Math.floor(rng() * pool.length)];
 }
 
-// A shuffled-ish shop stock of {item, price}.
-export function rollShopStock(count = 6, rng = Math.random) {
+// A shop stock of {item, price}. `tier` (0 = camp .. 4 = deepest town) biases
+// toward better gear — each slot keeps the best rarity of (1 + tier) rolls — and
+// nudges prices up. So far-flung, dangerous towns stock the good stuff.
+export function rollShopStock(count = 6, rng = Math.random, tier = 0) {
+  const rolls = 1 + Math.max(0, tier);
   const stock = [];
   for (let i = 0; i < count; i++) {
-    const t = rollDropTemplate(rng);
-    stock.push({ item: rollItem(t), price: RARITIES[t.rarity].price });
+    let t = rollDropTemplate(rng);
+    for (let k = 1; k < rolls; k++) {
+      const cand = rollDropTemplate(rng);
+      if (RARITY_ORDER.indexOf(cand.rarity) > RARITY_ORDER.indexOf(t.rarity)) t = cand;
+    }
+    stock.push({ item: rollItem(t), price: Math.round(RARITIES[t.rarity].price * (1 + tier * 0.15)) });
   }
   return stock;
 }

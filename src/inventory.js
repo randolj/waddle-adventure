@@ -35,6 +35,20 @@ function trim(v) {
   return Math.round(v * 100) / 100;
 }
 
+// Per-slot accent — the icon-disc tint + the row's type tag — so item categories
+// (weapon vs armor vs cloak vs trinket vs relic) read apart at a glance.
+const SLOT_TINT = { weapon: "#e8b35a", armor: "#8fb7ff", cloak: "#c4a6ff", trinket: "#7fe0c0", relic: "#ef9f27" };
+function slotTint(item) {
+  return SLOT_TINT[item.slot] || "#9aa6b1";
+}
+function slotTag(item) {
+  return item.slot === "weapon" ? (WEAPON_TYPE_NAMES[item.weaponType] || "Weapon").toUpperCase() : (SLOT_NAMES[item.slot] || item.slot).toUpperCase();
+}
+function withAlpha(hex, a) {
+  const h = hex.replace("#", "");
+  return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
+}
+
 // Truncate text with an ellipsis to fit maxW (uses the current ctx.font).
 function clipText(ctx, str, maxW) {
   if (ctx.measureText(str).width <= maxW) return str;
@@ -273,6 +287,7 @@ export class InventoryUI {
     this.mode = "inventory";
     this.shop = null;
     this.shopTab = "buy";
+    this.scroll = 0; // item-list scroll offset (px)
   }
 
   isOpen() {
@@ -281,12 +296,15 @@ export class InventoryUI {
   openInventory() {
     this.open = true;
     this.mode = "inventory";
+    this.scroll = 0;
   }
-  openShop(stock) {
+  openShop(stock, title = "Camp shop") {
     this.open = true;
     this.mode = "shop";
     this.shop = stock;
+    this.shopTitle = title;
     this.shopTab = "buy";
+    this.scroll = 0;
   }
   close() {
     this.open = false;
@@ -317,7 +335,7 @@ export class InventoryUI {
     ctx.textAlign = "left";
     ctx.fillStyle = "#e9eef6";
     ctx.font = "600 20px -apple-system, sans-serif";
-    ctx.fillText(this.mode === "shop" ? "Camp shop" : "Inventory", px + 22, py + 34);
+    ctx.fillText(this.mode === "shop" ? this.shopTitle || "Shop" : "Inventory", px + 22, py + 34);
 
     // Coins.
     ctx.textAlign = "right";
@@ -435,7 +453,10 @@ export class InventoryUI {
         ctx.fillStyle = active ? "#ffd166" : "#8b97ab";
         ctx.font = "600 13px -apple-system, sans-serif";
         ctx.fillText(label, tx + tw / 2, contentY + 14);
-        if (clicked && hit(tx, contentY, tw, 26)) this.shopTab = key;
+        if (clicked && hit(tx, contentY, tw, 26)) {
+          this.shopTab = key;
+          this.scroll = 0;
+        }
       });
       ctx.textBaseline = "alphabetic";
       listTop = contentY + 36;
@@ -449,38 +470,68 @@ export class InventoryUI {
     const textMaxW = listW - 46 - 64; // leave room for the right-side label
     let hoveredItem = null;
 
+    // Scroll the list when it overflows: wheel adjusts the offset, clamped so the
+    // last row is always reachable (clamp again in case the list just shrank).
+    const totalH = rows.length ? rows.length * (rowH + gap) - gap : 0;
+    const maxScroll = Math.max(0, totalH - listH);
+    const wheel = input.consumeWheel();
+    if (maxScroll > 0 && wheel) this.scroll += wheel;
+    this.scroll = Math.max(0, Math.min(this.scroll, maxScroll));
+    const scroll = this.scroll;
+
     ctx.save();
     ctx.beginPath();
     ctx.rect(listX, listTop, listW, listH);
     ctx.clip();
     rows.forEach((entry, i) => {
       const item = entry.item;
-      const ry = listTop + i * (rowH + gap);
-      if (ry > listTop + listH) return;
-      const hovered = hit(listX, ry, listW, rowH);
+      const ry = listTop + i * (rowH + gap) - scroll;
+      if (ry + rowH < listTop || ry > listTop + listH) return; // cull off-screen rows (visual + clicks)
+      // Only hover/click rows whose mouse position is inside the list viewport.
+      const hovered = my >= listTop && my <= listTop + listH && hit(listX, ry, listW, rowH);
       if (hovered) hoveredItem = { item, x: mx, y: my };
       const equipped = player.isEquipped(item);
       const sold = entry.sold;
+      const locked = item.classes && !item.classes.includes(player.class); // off-class gear you can't equip
       const rlx = listX + listW - 14;
 
       ctx.fillStyle = sold ? "rgba(255,255,255,0.02)" : hovered ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)";
       rr(ctx, listX, ry, listW, rowH, 8);
       ctx.fill();
       ctx.fillStyle = RARITIES[item.rarity].color;
-      ctx.globalAlpha = sold ? 0.4 : 1;
+      ctx.globalAlpha = sold || locked ? 0.4 : 1;
       rr(ctx, listX, ry, 4, rowH, 2);
       ctx.fill();
       ctx.globalAlpha = 1;
 
+      // Slot-tinted disc behind the icon — color-codes the category.
+      const tint = slotTint(item);
+      ctx.fillStyle = withAlpha(tint, locked ? 0.08 : 0.18);
+      rr(ctx, listX + 11, ry + rowH / 2 - 15, 30, 30, 9);
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(tint, locked ? 0.25 : 0.55);
+      ctx.lineWidth = 1;
+      rr(ctx, listX + 11, ry + rowH / 2 - 15, 30, 30, 9);
+      ctx.stroke();
+
+      // Off-class rows are darkened so it's obvious you can't use them.
+      ctx.globalAlpha = locked ? 0.45 : 1;
       drawItemIcon(ctx, listX + 26, ry + rowH / 2, 14, item);
 
       ctx.textAlign = "left";
       ctx.fillStyle = sold ? "#5d6678" : RARITIES[item.rarity].color;
       ctx.font = "600 14px -apple-system, sans-serif";
-      ctx.fillText(clipText(ctx, item.name, textMaxW), listX + 46, ry + 17);
+      ctx.fillText(clipText(ctx, item.name, textMaxW), listX + 46, ry + 16);
+      // Line 2: slot-type tag (slot color) + the mod summary.
+      const tag = slotTag(item);
+      ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.fillStyle = tint;
+      ctx.fillText(tag, listX + 46, ry + 31);
+      const tagW = ctx.measureText(tag).width;
       ctx.fillStyle = "#8b97ab";
       ctx.font = "500 11px -apple-system, sans-serif";
-      ctx.fillText(clipText(ctx, modsSummary(item), textMaxW), listX + 46, ry + 32);
+      ctx.fillText(clipText(ctx, modsSummary(item), textMaxW - tagW - 12), listX + 46 + tagW + 10, ry + 31);
+      ctx.globalAlpha = 1;
 
       ctx.textAlign = "right";
       if (view === "buy") {
@@ -531,6 +582,19 @@ export class InventoryUI {
       }
     });
     ctx.restore();
+
+    // Scrollbar in the right gutter when the list overflows.
+    if (maxScroll > 0) {
+      const sbX = listX + listW + 6;
+      ctx.fillStyle = "rgba(255,255,255,0.07)";
+      rr(ctx, sbX, listTop, 5, listH, 2);
+      ctx.fill();
+      const thumbH = Math.max(28, (listH / totalH) * listH);
+      const thumbY = listTop + (listH - thumbH) * (scroll / maxScroll);
+      ctx.fillStyle = "rgba(255,255,255,0.28)";
+      rr(ctx, sbX, thumbY, 5, thumbH, 2);
+      ctx.fill();
+    }
 
     if (rows.length === 0) {
       ctx.textAlign = "center";

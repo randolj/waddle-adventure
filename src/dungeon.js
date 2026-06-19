@@ -2,6 +2,10 @@ import { Enemy } from "./enemy.js";
 import { dist, valueNoise } from "./utils.js";
 import { BIOMES, BIOME_IDS } from "./biomes.js";
 
+// The campaign goal: reach this depth and slay the boss waiting there (the Heart
+// of Winter) to win. Depth stays open-ended past it for endless play.
+export const FINAL_DEPTH = 10;
+
 // Difficulty is driven by a single endless "depth" number. Each level scales
 // enemy HP + damage (and room count + rewards) — you can always go deeper.
 export function dungeonConfig(depth) {
@@ -202,10 +206,20 @@ export class Dungeon {
     room.spawned = true;
     const cfg = this.cfg;
     if (room.type === "boss") {
-      const e = new Enemy(CX, CY, "boss", { hp: cfg.boss.hp, dmg: cfg.boss.dmg });
-      e.bossKind = this.biome.boss.kind;
-      e.name = this.biome.boss.name;
-      e.color = this.biome.boss.color;
+      // At the final depth, the biome boss is replaced by the campaign's last
+      // boss — bigger, named, and the win trigger when it falls.
+      const final = this.depth >= FINAL_DEPTH;
+      const e = new Enemy(CX, CY, "boss", final ? { hp: cfg.boss.hp * 1.6, dmg: cfg.boss.dmg * 1.25 } : { hp: cfg.boss.hp, dmg: cfg.boss.dmg });
+      if (final) {
+        e.bossKind = "caster";
+        e.name = "The Heart of Winter";
+        e.color = "#bfe3ff";
+        e.isFinal = true;
+      } else {
+        e.bossKind = this.biome.boss.kind;
+        e.name = this.biome.boss.name;
+        e.color = this.biome.boss.color;
+      }
       enemies.push(e);
       this.boss = e;
       return;

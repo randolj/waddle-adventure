@@ -23,9 +23,10 @@ export class World {
 
     const rng = mulberry32(seed);
 
-    // Central safe camp: no creatures spawn or enter here; the start area.
+    // Central safe camp: no creatures spawn or enter here; the start area (tier 0).
     this.safeZone = {
       name: "Camp",
+      tier: 0,
       x: width / 2 - 400,
       y: height / 2 - 320,
       w: 800,
@@ -69,6 +70,33 @@ export class World {
       tierIndex: s.tier,
       biome: s.biome,
     }));
+
+    // One TOWN per outer biome (tiers 1-4), set beside that biome's dungeon
+    // entrance — a safe haven with a shop whose gear quality scales with the tier.
+    // The central camp is the tier-0 hub (it also has the Elder + Quartermaster).
+    const TOWN_NAMES = { cavern: "Hollowdeep", ember: "Cinderhold", verdant: "Mossvale", shadow: "Duskmere" };
+    this.towns = specs
+      .filter((s) => s.tier >= 1)
+      .map((s) => {
+        const ang = s.ang + 0.55; // beside the dungeon entrance, same biome region
+        const tx = Math.max(300, Math.min(width - 300, cx + Math.cos(ang) * s.rad));
+        const ty = Math.max(300, Math.min(height - 300, cy + Math.sin(ang) * s.rad));
+        const w = 540;
+        const h = 440;
+        const name = TOWN_NAMES[s.biome] || "Outpost";
+        return {
+          name,
+          tier: s.tier,
+          biome: s.biome,
+          cx: tx,
+          cy: ty,
+          zone: { name, tier: s.tier, x: tx - w / 2, y: ty - h / 2, w, h },
+          shop: { x: tx + 100, y: ty + 20, r: 34 },
+        };
+      });
+
+    // All safe zones (camp + towns) — drive inSafeZone / keepOutOfSafe / healing.
+    this.safeZones = [this.safeZone, ...this.towns.map((t) => t.zone)];
 
     // Solid obstacles (rocks / ice shards) the player and enemies collide with.
     this.obstacles = [];
@@ -142,7 +170,7 @@ export class World {
 
   // Which biome owns (x, y) — concentric rings around camp, then angular slices.
   biomeAt(x, y) {
-    if (this.inSafeZone(x, y, 120)) return "tundra";
+    if (this.inZone(this.safeZone, x, y, 120)) return "tundra"; // camp ground is tundra
     const cx = this.width / 2;
     const cy = this.height / 2;
     const d = Math.hypot(x - cx, y - cy);
@@ -153,16 +181,34 @@ export class World {
     return this.sliceBiomes[Math.min(n - 1, Math.floor((a / (Math.PI * 2)) * n))];
   }
 
-  // Is (x, y) inside the safe camp? `pad` expands (positive) or shrinks the test.
-  inSafeZone(x, y, pad = 0) {
-    const z = this.safeZone;
+  // Difficulty tier (0 tundra .. 4 shadow) of the region at (x, y). Drives how
+  // hard wild enemies hit, so you can't safely stroll to a far town for gear.
+  tierAt(x, y) {
+    const i = BIOME_IDS.indexOf(this.biomeAt(x, y));
+    return i < 0 ? 0 : i;
+  }
+
+  // Is a point inside a single zone rect (with optional padding)?
+  inZone(z, x, y, pad = 0) {
     return x > z.x - pad && x < z.x + z.w + pad && y > z.y - pad && y < z.y + z.h + pad;
   }
 
-  // Push a point to the nearest camp edge if it's inside (keeps creatures out).
+  // The safe zone (camp or a town) containing (x, y), or null.
+  safeZoneAt(x, y, pad = 0) {
+    for (const z of this.safeZones) if (this.inZone(z, x, y, pad)) return z;
+    return null;
+  }
+
+  // Is (x, y) inside any safe zone? `pad` expands (positive) or shrinks the test.
+  inSafeZone(x, y, pad = 0) {
+    return !!this.safeZoneAt(x, y, pad);
+  }
+
+  // Push a point to the nearest edge of whichever safe zone it's in (keeps
+  // creatures out of every camp/town).
   keepOutOfSafe(x, y, r) {
-    const z = this.safeZone;
-    if (!this.inSafeZone(x, y, r)) return { x, y };
+    const z = this.safeZoneAt(x, y, r);
+    if (!z) return { x, y };
     const dl = x - (z.x - r);
     const dr = z.x + z.w + r - x;
     const dt = y - (z.y - r);
@@ -251,6 +297,12 @@ export class World {
     // Safe camp overlay.
     this.drawCamp(ctx);
 
+    // Towns (visible ones only).
+    for (const t of this.towns) {
+      if (!visible(t.cx, t.cy, 360)) continue;
+      this.drawTown(ctx, t);
+    }
+
     // Rough world border.
     ctx.strokeStyle = "rgba(40, 44, 58, 0.6)";
     ctx.lineWidth = 8;
@@ -329,6 +381,65 @@ export class World {
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.restore();
+  }
+
+  drawTown(ctx, t) {
+    const z = t.zone;
+    const accent = (BIOMES[t.biome] || BIOMES.tundra).accent || "#9bd1a0";
+    // Safe ground tint + dashed border (tinted by the biome accent).
+    ctx.fillStyle = "rgba(255, 220, 160, 0.06)";
+    ctx.fillRect(z.x, z.y, z.w, z.h);
+    ctx.strokeStyle = "rgba(120, 175, 120, 0.5)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([14, 10]);
+    ctx.strokeRect(z.x, z.y, z.w, z.h);
+    ctx.setLineDash([]);
+
+    // A few huts around the square (kept off the shop).
+    this.drawHut(ctx, t.cx - 150, t.cy - 90, accent);
+    this.drawHut(ctx, t.cx - 60, t.cy + 110, accent);
+    this.drawHut(ctx, t.cx + 130, t.cy - 110, accent);
+
+    // The shop stall.
+    this.drawShopAt(ctx, t.shop.x, t.shop.y);
+
+    // Name + tier label.
+    ctx.fillStyle = depthColor(t.tier + 1);
+    ctx.font = "700 20px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`${t.name.toUpperCase()}`, t.cx, z.y + 30);
+    ctx.fillStyle = "rgba(90, 110, 90, 0.7)";
+    ctx.font = "600 12px -apple-system, sans-serif";
+    ctx.fillText(`safe town · tier ${t.tier}`, t.cx, z.y + 48);
+    ctx.textAlign = "left";
+  }
+
+  drawHut(ctx, x, y, roofCol) {
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    // Shadow.
+    ctx.fillStyle = "rgba(25,30,45,0.2)";
+    ctx.beginPath();
+    ctx.ellipse(x, y + 26, 30, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Wall.
+    ctx.fillStyle = "#7c6047";
+    ctx.fillRect(x - 24, y - 6, 48, 34);
+    ctx.strokeRect(x - 24, y - 6, 48, 34);
+    // Roof.
+    ctx.fillStyle = roofCol;
+    ctx.beginPath();
+    ctx.moveTo(x - 30, y - 4);
+    ctx.lineTo(x, y - 30);
+    ctx.lineTo(x + 30, y - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Door.
+    ctx.fillStyle = "#3a2c1e";
+    ctx.fillRect(x - 7, y + 8, 14, 20);
+    ctx.strokeRect(x - 7, y + 8, 14, 20);
   }
 
   drawCamp(ctx) {
@@ -549,8 +660,10 @@ export class World {
   }
 
   drawShop(ctx) {
-    const sx = this.shop.x;
-    const sy = this.shop.y;
+    this.drawShopAt(ctx, this.shop.x, this.shop.y);
+  }
+
+  drawShopAt(ctx, sx, sy) {
     ctx.lineJoin = "round";
     // Shadow.
     ctx.fillStyle = "rgba(25,30,45,0.22)";

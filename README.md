@@ -174,12 +174,21 @@ and applies to every future run — so even a failed dive makes the next one
 stronger. Logic in [src/meta.js](src/meta.js); the vendor overlay in
 [src/metaui.js](src/metaui.js).
 
-### Zones — safe camp vs the wilds
+### Zones — camp, towns, and the wilds
 
 The world centre is a **safe camp** (warm tint, dashed border, campfire): no
-creatures spawn there and none can enter it. Venturing out into the **wilds** is
-what triggers creatures to spawn near you. Crossing the boundary shows a banner;
-the HUD shows your current zone.
+creatures spawn there and none can enter it. Venturing out into the **wilds**
+triggers creatures to spawn near you. Crossing a boundary shows a banner; the HUD
+names your current zone (and shows **WILDS · T0–T4** so you always know how
+dangerous the area is).
+
+**Towns.** Each outer biome has a **town** (Hollowdeep, Cinderhold, Mossvale,
+Duskmere) — a safe haven with its own shop. They're also no-spawn, heal-on-rest
+zones. Crucially, **a town's shop stocks better gear the deeper its tier** — but
+**the wild enemies around higher-tier areas hit much harder** (HP + damage scale
+with the area tier), so a low-level penguin can't just stroll out to Duskmere and
+buy endgame gear: it'll get one-shot on the way. Earn your way outward. (The Elder
+and Quartermaster live only at the central camp, the tier-0 home base.)
 
 ### Movement feel (Hades-inspired)
 

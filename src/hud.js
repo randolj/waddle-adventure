@@ -6,9 +6,9 @@
 
 import { roundRect } from "./utils.js";
 import { BIOMES } from "./biomes.js";
-import { depthColor, dungeonConfig } from "./dungeon.js";
+import { depthColor, dungeonConfig, FINAL_DEPTH } from "./dungeon.js";
 import { WEAPON_TYPE_NAMES, RARITIES } from "./items.js";
-import { getShards, shardsForRun } from "./meta.js";
+import { getShards, shardsForRun, hasWon, getDeepest } from "./meta.js";
 
 const CLASS_HUD_COLOR = { drifter: "#5be3a0", warden: "#e0a64b", auralist: "#7fb0ff" };
 
@@ -459,17 +459,40 @@ export function drawHud(view) {
       ctx.fillText("⚠ LOOT AT RISK — EXTRACT TO KEEP IT", x, dy + dh + 31);
     }
   } else {
-    const inSafe = world.inSafeZone(player.x, player.y);
+    const zone = world.safeZoneAt(player.x, player.y);
     ctx.font = "700 11px -apple-system, sans-serif";
-    ctx.fillStyle = inSafe ? "#6fb46f" : "#c08a3a";
-    ctx.fillText(inSafe ? "CAMP" : "WILDS", x, dy + dh + 16);
+    let label;
+    let off;
+    if (zone) {
+      ctx.fillStyle = "#6fb46f";
+      label = `${zone.name.toUpperCase()} — SAFE`;
+      off = 130;
+    } else {
+      const tier = world.tierAt(player.x, player.y);
+      ctx.fillStyle = depthColor(tier + 1); // danger color cues higher-tier areas
+      label = `WILDS · T${tier}`;
+      off = 88;
+    }
+    ctx.fillText(label, x, dy + dh + 16);
     ctx.fillStyle = "#7d8aa6";
     ctx.font = "600 11px -apple-system, sans-serif";
-    ctx.fillText(`M: map (${mapMode})`, x + 70, dy + dh + 16);
+    ctx.fillText(`M: map (${mapMode})`, x + off, dy + dh + 16);
   }
   ctx.fillStyle = CLASS_HUD_COLOR[player.class] || "#9aa6b1";
   ctx.font = "700 11px -apple-system, sans-serif";
   ctx.fillText(`${player.class[0].toUpperCase() + player.class.slice(1)} · ${WEAPON_TYPE_NAMES[player.weaponType] || "Unarmed"}`, x, dy + dh + 31 + (scene === "dungeon" && onRun ? 15 : 0));
+
+  // Campaign goal tracker (overworld only).
+  if (scene === "overworld") {
+    ctx.font = "700 11px -apple-system, sans-serif";
+    if (hasWon()) {
+      ctx.fillStyle = "#bfe3ff";
+      ctx.fillText("✦ CHAMPION — the Heart of Winter is stilled", x, dy + dh + 46);
+    } else {
+      ctx.fillStyle = "#8fb7ff";
+      ctx.fillText(`GOAL · reach Depth ${FINAL_DEPTH}  (deepest ${getDeepest()})`, x, dy + dh + 46);
+    }
+  }
 
   ctx.textAlign = "right";
   ctx.font = "700 16px -apple-system, sans-serif";
@@ -513,5 +536,55 @@ export function drawGameOver(view) {
     ctx.fillStyle = "#cdd7ee";
     ctx.fillText(`Creatures slain: ${kills}  —  click or press R to return to camp`, w / 2, h / 2 + 12);
   }
+  ctx.textAlign = "left";
+}
+
+// Win screen — shown after the final boss (Heart of Winter) falls.
+export function drawVictory(view) {
+  const { ctx, w, h, runDeepest } = view;
+  ctx.fillStyle = "rgba(8, 16, 30, 0.74)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#bfe3ff";
+  ctx.font = "700 30px -apple-system, sans-serif";
+  ctx.fillText("✦  VICTORY  ✦", w / 2, h / 2 - 92);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 46px -apple-system, sans-serif";
+  ctx.fillText("The Heart of Winter is stilled", w / 2, h / 2 - 40);
+  ctx.fillStyle = "#cdd7ee";
+  ctx.font = "500 19px -apple-system, sans-serif";
+  ctx.fillText(`You descended to Depth ${runDeepest} and ended the long cold.`, w / 2, h / 2 + 6);
+  ctx.fillStyle = "#9be29a";
+  ctx.font = "600 17px -apple-system, sans-serif";
+  ctx.fillText("Your loot is secured — you return to camp a Champion.", w / 2, h / 2 + 40);
+  ctx.fillStyle = "#7d8aa6";
+  ctx.font = "500 15px -apple-system, sans-serif";
+  ctx.fillText("The depths remain open. Click or press E to continue.", w / 2, h / 2 + 72);
+  ctx.textAlign = "left";
+}
+
+// Charge indicator while holding R to recall to camp (overworld).
+export function drawRecall(view) {
+  const { ctx, w, h, recallTimer, recallHold } = view;
+  if (!recallTimer || recallTimer <= 0) return;
+  const frac = Math.min(1, recallTimer / recallHold);
+  const cx = w / 2;
+  const cy = h - 132;
+  const bw = 200;
+  const bh = 8;
+  ctx.fillStyle = "rgba(10,12,20,0.72)";
+  roundRect(ctx, cx - bw / 2 - 14, cy - 26, bw + 28, 48, 10);
+  ctx.fill();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#bff0ff";
+  ctx.font = "600 13px -apple-system, sans-serif";
+  ctx.fillText("Hold R — returning to camp…", cx, cy - 6);
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  roundRect(ctx, cx - bw / 2, cy + 4, bw, bh, 4);
+  ctx.fill();
+  ctx.fillStyle = "#7fe3ff";
+  roundRect(ctx, cx - bw / 2, cy + 4, bw * frac, bh, 4);
+  ctx.fill();
   ctx.textAlign = "left";
 }

@@ -39,15 +39,23 @@ function renderInto(ctx, rx, ry, rw, rh, data, opts) {
     }
   }
 
-  // Safe camp.
-  const z = world.safeZone;
-  ctx.fillStyle = SAFE_FILL;
-  ctx.fillRect(mx(z.x), my(z.y), z.w * scale, z.h * scale);
-  ctx.strokeStyle = SAFE_BORDER;
+  // Safe camp + towns (all safe zones render as green havens).
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 3]);
-  ctx.strokeRect(mx(z.x), my(z.y), z.w * scale, z.h * scale);
-  ctx.setLineDash([]);
+  for (const z of world.safeZones) {
+    ctx.fillStyle = SAFE_FILL;
+    ctx.fillRect(mx(z.x), my(z.y), z.w * scale, z.h * scale);
+    ctx.strokeStyle = SAFE_BORDER;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(mx(z.x), my(z.y), z.w * scale, z.h * scale);
+    ctx.setLineDash([]);
+  }
+  // A marker dot at each town centre.
+  ctx.fillStyle = SAFE_BORDER;
+  for (const t of world.towns) {
+    ctx.beginPath();
+    ctx.arc(mx(t.cx), my(t.cy), 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Obstacles.
   ctx.fillStyle = OBST;
@@ -143,12 +151,17 @@ export function drawMap(ctx, mode, data) {
 
     renderInto(ctx, rx, ry, cw, ch, data, { showEnemies: true, viewRect: true, playerSize: 7 });
 
-    // Camp label.
+    // Camp + town labels.
     const z = data.world.safeZone;
     ctx.fillStyle = "rgba(190,240,205,0.95)";
     ctx.font = "600 12px -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(z.name, rx + (z.x + z.w / 2) * s, ry + (z.y + z.h / 2) * s);
+    ctx.fillStyle = "rgba(160,225,180,0.92)";
+    ctx.font = "600 11px -apple-system, sans-serif";
+    for (const t of data.world.towns) {
+      ctx.fillText(`${t.name} · T${t.tier}`, rx + t.cx * s, ry + t.cy * s);
+    }
 
     // Legend.
     ctx.textAlign = "left";
@@ -159,7 +172,7 @@ export function drawMap(ctx, mode, data) {
     const items = [
       [PLAYER, "You"],
       [ENEMY, "Creatures"],
-      ["rgba(120,200,140,0.95)", "Safe camp"],
+      ["rgba(120,200,140,0.95)", "Camp / towns"],
     ];
     for (const [c, t] of items) {
       ctx.fillStyle = c;

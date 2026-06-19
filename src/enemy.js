@@ -1,17 +1,39 @@
-import { dist, roughOutline } from "./utils.js";
-
-const INK = "#140f1c";
+import { dist, angleDiff, clamp, roughOutline } from "./utils.js";
+import { applyEnemyArt } from "./enemyart.js";
 
 // Enemy archetypes. Difficulty scales hp + damage on top of these bases.
+//
+// Behavior is selected by booleans (charger/bomber/summoner/healer/shielder/
+// splits/ranged/isBoss) — see `update()`'s dispatch. The `viz` fields (aspect,
+// spikeLen, legs, eyeCount, eyeScale, feature) drive the silhouette so the
+// archetypes read as visually distinct, not just recolored blobs.
 export const ENEMY_TYPES = {
-  runt: { hp: 26, speed: 132, dmg: 6, r: 12, color: "#6f8a4a", spikes: 4, contact: 0.6, mass: 0.7, eye: "#d6ff9a" },
+  runt: { hp: 26, speed: 132, dmg: 6, r: 12, color: "#6f8a4a", spikes: 4, contact: 0.6, mass: 0.7, eye: "#d6ff9a", spikeLen: 0.55, eyeScale: 1.45 },
   gremlin: { hp: 60, speed: 96, dmg: 12, r: 16, color: "#574f68", spikes: 6, contact: 0.7, mass: 1, eye: "#aef0ff" },
-  stalker: { hp: 48, speed: 156, dmg: 11, r: 14, color: "#7a4f6b", spikes: 7, contact: 0.5, mass: 0.8, eye: "#ffb0e6" },
-  brute: { hp: 160, speed: 58, dmg: 24, r: 25, color: "#585662", spikes: 8, contact: 0.9, mass: 2.4, eye: "#ffd0a0" },
+  stalker: { hp: 48, speed: 156, dmg: 11, r: 14, color: "#7a4f6b", spikes: 7, contact: 0.5, mass: 0.8, eye: "#ffb0e6", aspect: 0.9, spikeLen: 1.35, legs: true, eyeScale: 0.8 },
+  brute: { hp: 160, speed: 58, dmg: 24, r: 25, color: "#585662", spikes: 8, contact: 0.9, mass: 2.4, eye: "#ffd0a0", aspect: 1.22, spikeLen: 0.7, eyeScale: 0.85, feature: "horns", hornUp: true },
   // Ranged: keeps its distance and spits straight bolts.
-  spitter: { hp: 42, speed: 92, dmg: 8, r: 14, color: "#7a8c4a", spikes: 5, contact: 0.6, mass: 0.9, eye: "#e6ff9a", ranged: true, pref: 280, fireRange: 430, fireCd: 1.5, projSpeed: 300, projDmg: 10, projColor: "#bfe06a", projR: 7 },
+  spitter: { hp: 42, speed: 92, dmg: 8, r: 14, color: "#7a8c4a", spikes: 5, contact: 0.6, mass: 0.9, eye: "#e6ff9a", ranged: true, pref: 280, fireRange: 430, fireCd: 1.5, projSpeed: 300, projDmg: 10, projColor: "#bfe06a", projR: 7, aspect: 1.05, spikeLen: 0.7, eyeScale: 1.5, eyeCount: 1, feature: "nozzle" },
   // Magic: slower, lobs homing orbs.
-  warlock: { hp: 56, speed: 76, dmg: 9, r: 16, color: "#5a4b8a", spikes: 3, contact: 0.6, mass: 1.1, eye: "#cbb0ff", ranged: true, magic: true, pref: 330, fireRange: 480, fireCd: 2.3, projSpeed: 190, projDmg: 13, projColor: "#b08aff", projR: 9, homing: true },
+  warlock: { hp: 56, speed: 76, dmg: 9, r: 16, color: "#5a4b8a", spikes: 3, contact: 0.6, mass: 1.1, eye: "#cbb0ff", ranged: true, magic: true, pref: 330, fireRange: 480, fireCd: 2.3, projSpeed: 190, projDmg: 13, projColor: "#b08aff", projR: 9, homing: true, aspect: 0.92, spikeLen: 0, eyeScale: 0.95 },
+
+  // --- New behaviors ---
+  // Charger: stalks, then telegraphs and lunges in a straight high-speed line.
+  charger: { hp: 78, speed: 86, dmg: 16, r: 18, color: "#8a5a3a", spikes: 6, contact: 0.8, mass: 1.8, eye: "#ffd0a0", charger: true, chargeWind: 0.55, chargeSpeed: 680, aspect: 1.12, spikeLen: 0.45, eyeScale: 0.9, feature: "horns" },
+  // Bomber: fragile kamikaze — rushes, lights a fuse, then bursts (and bursts
+  // on death too, so killing it point-blank still hurts).
+  bomber: { hp: 30, speed: 158, dmg: 9, r: 15, color: "#b8472e", spikes: 4, contact: 0.7, mass: 0.8, eye: "#ffe08a", bomber: true, fuseRange: 74, fuseTime: 0.7, boomR: 100, boomDmg: 22, aspect: 1, spikeLen: 0, eyeScale: 1.1, feature: "fuse" },
+  // Summoner: hangs back and conjures minions on a timer (priority kill).
+  summoner: { hp: 80, speed: 70, dmg: 8, r: 17, color: "#4a5a8a", spikes: 3, contact: 0.8, mass: 1.2, eye: "#bcd0ff", summoner: true, pref: 300, summonType: "runt", summonCd: 3.4, summonCap: 18, aspect: 0.84, spikeLen: 0.2, eyeScale: 0.9, eyeCount: 3, feature: "sigil" },
+  // Splitter: a slow blob that cleaves into two smaller (non-splitting) copies
+  // when it dies.
+  splitter: { hp: 92, speed: 90, dmg: 12, r: 19, color: "#5a7a5e", spikes: 6, contact: 0.7, mass: 1.1, eye: "#caffd0", splits: true, aspect: 1, spikeLen: 0.85, eyeScale: 0.9, feature: "seam" },
+  // Shielder: a wall on legs. Blocks damage from the front; turns slowly enough
+  // that a nimble player can dash around and hit its flank.
+  shielder: { hp: 112, speed: 60, dmg: 16, r: 19, color: "#6a6a72", spikes: 5, contact: 0.85, mass: 2.0, eye: "#dfe6ff", shielder: true, shieldArc: 1.35, turnRate: 2.3, aspect: 1.06, spikeLen: 0.35, eyeScale: 0.9, feature: "shield" },
+  // Healer: keeps its distance and mends wounded allies (kill it first).
+  healer: { hp: 64, speed: 92, dmg: 7, r: 15, color: "#6aa07a", spikes: 3, contact: 0.6, mass: 0.9, eye: "#e6fff0", healer: true, pref: 230, healRange: 260, healCd: 2.4, aspect: 0.96, spikeLen: 0, eyeScale: 1, feature: "cross" },
+
   boss: { hp: 760, speed: 70, dmg: 28, r: 40, color: "#7a2f3a", spikes: 11, contact: 0.85, mass: 7, eye: "#ffd166", isBoss: true },
 };
 
@@ -41,6 +63,7 @@ export class Enemy {
     this.mass = t.mass;
     this.contactInterval = t.contact;
     this.dead = false;
+    this.facing = 0;
 
     // Ranged params.
     this.pref = t.pref || 0;
@@ -54,14 +77,52 @@ export class Enemy {
     this.fireTimer = Math.random() * this.fireCd;
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
 
+    // --- Behavior flags + per-archetype state ---
+    this.charger = !!t.charger;
+    this.bomber = !!t.bomber;
+    this.summoner = !!t.summoner;
+    this.healer = !!t.healer;
+    this.shielder = !!t.shielder;
+    this.splits = !!t.splits;
+    this.gen = 0; // split generation — children (gen>0) don't split again
+    this.spawns = []; // queued child descriptors; drained by main.js
+    this.spawnScale = { hp: scale.hp || 1, dmg: scale.dmg || 1 }; // inherited difficulty
+
+    // Charger.
+    this.chargeState = "chase";
+    this.chargeTimer = 1.2 + Math.random();
+    this.chargeWind = t.chargeWind || 0.55;
+    this.chargeSpeed = t.chargeSpeed || 660;
+    this.chargeDx = 0;
+    this.chargeDy = 0;
+    // Bomber.
+    this.fuseRange = t.fuseRange || 72;
+    this.fuseTime = t.fuseTime || 0.7;
+    this.fuseT = 0;
+    this.boomR = t.boomR || 96;
+    this.boomDmg = Math.round((t.boomDmg || t.dmg) * (scale.dmg || 1) * 1.15);
+    // Summoner.
+    this.summonType = t.summonType || "runt";
+    this.summonCd = t.summonCd || 3.2;
+    this.summonT = Math.random() * (t.summonCd || 3.2);
+    this.summonCap = t.summonCap || 16;
+    this.summonPulse = 0;
+    // Healer.
+    this.healRange = t.healRange || 260;
+    this.healCd = t.healCd || 2.4;
+    this.healT = Math.random() * (t.healCd || 2.4);
+    this.healBeam = null;
+    // Shielder.
+    this.shieldArc = t.shieldArc || 0;
+    this.turnRate = t.turnRate || 2.4;
+    this.blockFlash = 0;
+
     // Boss.
     this.bossKind = "charger";
     this.name = "Guardian";
     this.bossState = "chase";
     this.bossTimer = 1.5;
     this.castCount = 0;
-    this.chargeDx = 0;
-    this.chargeDy = 0;
 
     this.vx = 0;
     this.vy = 0;
@@ -69,6 +130,15 @@ export class Enemy {
     this.contactTimer = 0;
     this.chillTimer = 0; // frost slow (frostTouch / staff / Auralist) — scales speed down
     this.wobble = Math.random() * Math.PI * 2;
+
+    // --- Visual identity (silhouette knobs) ---
+    this.aspect = t.aspect || 1; // horizontal stretch of the body
+    this.spikeLen = t.spikeLen != null ? t.spikeLen : 1; // 0 hides the spikes
+    this.legs = !!t.legs;
+    this.eyeCount = t.eyeCount || 2;
+    this.eyeScale = t.eyeScale || 1;
+    this.feature = t.feature || null; // horns/fuse/sigil/cross/shield/seam/nozzle
+    this.hornUp = !!t.hornUp;
 
     this.outline = roughOutline(() => Math.random(), this.isBoss ? 15 : 13, 0.2);
     const spikeCount = t.spikes + Math.floor(Math.random() * 2);
@@ -84,16 +154,30 @@ export class Enemy {
     }));
   }
 
+  // Returns the damage actually dealt (after the shielder's frontal block), so
+  // callers can show the real number / lifesteal the real amount.
   takeHit(damage, fromAngle, knockback) {
-    this.hp -= damage;
+    let dealt = damage;
+    let kb = knockback;
+    if (this.shieldArc > 0 && !this.dead) {
+      // `fromAngle` points from attacker toward us, so the attacker sits in the
+      // `fromAngle + PI` direction. A frontal hit is one inside the shield arc.
+      if (Math.abs(angleDiff(fromAngle + Math.PI, this.facing)) < this.shieldArc) {
+        dealt = Math.max(1, Math.round(damage * 0.12));
+        kb = knockback * 0.25;
+        this.blockFlash = 0.16;
+      }
+    }
+    this.hp -= dealt;
     this.hurtFlash = 0.18;
-    const kb = knockback / this.mass;
-    this.vx += Math.cos(fromAngle) * kb;
-    this.vy += Math.sin(fromAngle) * kb;
+    const k = kb / this.mass;
+    this.vx += Math.cos(fromAngle) * k;
+    this.vy += Math.sin(fromAngle) * k;
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
     }
+    return dealt;
   }
 
   // Frost slow — bosses shrug off most of it.
@@ -104,14 +188,20 @@ export class Enemy {
     return this.chillTimer > 0 ? this.speed * 0.5 : this.speed;
   }
 
-  update(dt, player, world, projectiles) {
+  update(dt, player, world, projectiles, enemies) {
     if (this.dead) return;
     this.wobble += dt * 8;
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
     if (this.contactTimer > 0) this.contactTimer -= dt;
     if (this.chillTimer > 0) this.chillTimer -= dt;
+    if (this.blockFlash > 0) this.blockFlash -= dt;
 
     if (this.isBoss) this.updateBoss(dt, player, projectiles);
+    else if (this.charger) this.updateCharger(dt, player);
+    else if (this.bomber) this.updateBomber(dt, player);
+    else if (this.summoner) this.updateSummoner(dt, player, enemies);
+    else if (this.healer) this.updateHealer(dt, player, enemies);
+    else if (this.shielder) this.updateShielder(dt, player);
     else if (this.ranged) this.updateRanged(dt, player, projectiles);
     else this.updateChase(dt, player);
 
@@ -132,9 +222,15 @@ export class Enemy {
       this.x = safe.x;
       this.y = safe.y;
     }
-    if (this.bossState === "charge" && dist(before.x, before.y, this.x, this.y) < this.speed * dt) {
+    // A charge that slams into a wall ends early (boss + charger).
+    const moved = dist(before.x, before.y, this.x, this.y);
+    if (this.bossState === "charge" && moved < this.speed * dt) {
       this.bossState = "recover";
       this.bossTimer = 0.6;
+    }
+    if (this.chargeState === "charge" && moved < this.speed * dt) {
+      this.chargeState = "recover";
+      this.chargeTimer = 0.5;
     }
 
     this.tryContact(player);
@@ -143,6 +239,7 @@ export class Enemy {
   updateChase(dt, player) {
     if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
       const a = Math.atan2(player.y - this.y, player.x - this.x);
+      this.facing = a;
       this.x += Math.cos(a) * this.effSpeed * dt;
       this.y += Math.sin(a) * this.effSpeed * dt;
     }
@@ -152,6 +249,7 @@ export class Enemy {
   updateRanged(dt, player, projectiles) {
     if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
       const a = Math.atan2(player.y - this.y, player.x - this.x);
+      this.facing = a;
       const d = dist(this.x, this.y, player.x, player.y);
       let mvx = 0;
       let mvy = 0;
@@ -176,6 +274,158 @@ export class Enemy {
         projectiles.push(makeProjectile(this.x, this.y, a, this.projSpeed, this.projDmg, this.projColor, this.homing, this.projR));
         this.fireTimer = this.fireCd * (0.85 + Math.random() * 0.3);
       }
+    }
+  }
+
+  // Charger: chase -> telegraph (visible wind-up) -> charge (lunge) -> recover.
+  updateCharger(dt, player) {
+    this.chargeTimer -= dt;
+    const a = Math.atan2(player.y - this.y, player.x - this.x);
+    const d = dist(this.x, this.y, player.x, player.y);
+    if (this.chargeState === "chase") {
+      this.facing = a;
+      if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
+        this.x += Math.cos(a) * this.effSpeed * dt;
+        this.y += Math.sin(a) * this.effSpeed * dt;
+      }
+      if (this.chargeTimer <= 0 && d < 440) {
+        this.chargeState = "telegraph";
+        this.chargeTimer = this.chargeWind;
+        this.chargeDx = Math.cos(a);
+        this.chargeDy = Math.sin(a);
+        this.facing = a;
+      }
+    } else if (this.chargeState === "telegraph") {
+      this.facing = Math.atan2(this.chargeDy, this.chargeDx);
+      if (this.chargeTimer <= 0) {
+        this.chargeState = "charge";
+        this.chargeTimer = 0.45;
+        this.vx = this.chargeDx * this.chargeSpeed;
+        this.vy = this.chargeDy * this.chargeSpeed;
+      }
+    } else if (this.chargeState === "charge") {
+      if (this.chargeTimer <= 0) {
+        this.chargeState = "recover";
+        this.chargeTimer = 0.5;
+      }
+    } else {
+      // recover
+      if (this.chargeTimer <= 0) {
+        this.chargeState = "chase";
+        this.chargeTimer = 1.5 + Math.random() * 1.2;
+      }
+    }
+  }
+
+  // Bomber: rush straight in; once close (or on death) it bursts via onEnemyDeath.
+  updateBomber(dt, player) {
+    const a = Math.atan2(player.y - this.y, player.x - this.x);
+    const d = dist(this.x, this.y, player.x, player.y);
+    this.facing = a;
+    if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
+      const sp = this.fuseT > 0 ? this.effSpeed * 1.15 : this.effSpeed;
+      this.x += Math.cos(a) * sp * dt;
+      this.y += Math.sin(a) * sp * dt;
+    }
+    if (this.fuseT > 0) {
+      this.fuseT -= dt;
+      if (this.fuseT <= 0) {
+        this.hp = 0;
+        this.dead = true; // explosion handled in main.js onEnemyDeath
+      }
+    } else if (d < this.fuseRange) {
+      this.fuseT = this.fuseTime;
+    }
+  }
+
+  // Summoner: hold a mid range and conjure minions on a timer.
+  updateSummoner(dt, player, enemies) {
+    const a = Math.atan2(player.y - this.y, player.x - this.x);
+    const d = dist(this.x, this.y, player.x, player.y);
+    this.facing = a;
+    if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
+      let mvx = 0;
+      let mvy = 0;
+      if (d < this.pref - 40) {
+        mvx = -Math.cos(a);
+        mvy = -Math.sin(a);
+      } else if (d > this.pref + 120) {
+        mvx = Math.cos(a) * 0.6;
+        mvy = Math.sin(a) * 0.6;
+      } else {
+        mvx = Math.cos(a + (Math.PI / 2) * this.strafeDir) * 0.5;
+        mvy = Math.sin(a + (Math.PI / 2) * this.strafeDir) * 0.5;
+      }
+      this.x += mvx * this.effSpeed * dt;
+      this.y += mvy * this.effSpeed * dt;
+    }
+    if (this.summonPulse > 0) this.summonPulse -= dt;
+    this.summonT -= dt;
+    if (this.summonT <= 0 && enemies && enemies.length < this.summonCap && d < 600) {
+      const n = Math.random() < 0.5 ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const rr = this.r + 18 + Math.random() * 14;
+        this.spawns.push({ x: this.x + Math.cos(ang) * rr, y: this.y + Math.sin(ang) * rr, type: this.summonType, hp: this.spawnScale.hp * 0.8, dmg: this.spawnScale.dmg, gen: 1 });
+      }
+      this.summonT = this.summonCd * (0.85 + Math.random() * 0.3);
+      this.summonPulse = 0.45;
+    }
+  }
+
+  // Healer: flee the player, mend the nearest wounded (non-healer) ally.
+  updateHealer(dt, player, enemies) {
+    const a = Math.atan2(player.y - this.y, player.x - this.x);
+    const d = dist(this.x, this.y, player.x, player.y);
+    this.facing = a;
+    if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
+      let mvx = 0;
+      let mvy = 0;
+      if (d < this.pref) {
+        mvx = -Math.cos(a);
+        mvy = -Math.sin(a);
+      } else {
+        mvx = Math.cos(a + (Math.PI / 2) * this.strafeDir) * 0.5;
+        mvy = Math.sin(a + (Math.PI / 2) * this.strafeDir) * 0.5;
+      }
+      this.x += mvx * this.effSpeed * dt;
+      this.y += mvy * this.effSpeed * dt;
+    }
+    if (this.healBeam) {
+      this.healBeam.t -= dt;
+      if (this.healBeam.t <= 0 || this.healBeam.target.dead) this.healBeam = null;
+    }
+    this.healT -= dt;
+    if (this.healT <= 0 && enemies) {
+      let best = null;
+      let bestD = Infinity;
+      for (const o of enemies) {
+        if (o === this || o.dead || o.healer || o.isBoss) continue;
+        if (o.hp >= o.maxHp) continue;
+        const dd = dist(this.x, this.y, o.x, o.y);
+        if (dd < this.healRange && dd < bestD) {
+          bestD = dd;
+          best = o;
+        }
+      }
+      if (best) {
+        best.hp = Math.min(best.maxHp, best.hp + Math.max(6, Math.round(best.maxHp * 0.12)));
+        this.healBeam = { target: best, t: 0.35 }; // live ref so the beam tracks the ally
+        this.healT = this.healCd;
+      } else {
+        this.healT = 0.5; // nothing to heal — check again soon
+      }
+    }
+  }
+
+  // Shielder: turn slowly toward the player while advancing (flank to hurt it).
+  updateShielder(dt, player) {
+    const want = Math.atan2(player.y - this.y, player.x - this.x);
+    const turn = this.turnRate * dt;
+    this.facing += clamp(angleDiff(want, this.facing), -turn, turn);
+    if (this.vx * this.vx + this.vy * this.vy < 60 * 60) {
+      this.x += Math.cos(this.facing) * this.effSpeed * dt;
+      this.y += Math.sin(this.facing) * this.effSpeed * dt;
     }
   }
 
@@ -233,6 +483,7 @@ export class Enemy {
     this.bossTimer -= dt;
     const a = Math.atan2(player.y - this.y, player.x - this.x);
     const d = dist(this.x, this.y, player.x, player.y);
+    this.facing = a;
     if (this.bossState === "chase") {
       this.x += Math.cos(a) * this.speed * dt;
       this.y += Math.sin(a) * this.speed * dt;
@@ -243,6 +494,7 @@ export class Enemy {
         this.chargeDy = Math.sin(a);
       }
     } else if (this.bossState === "telegraph") {
+      this.facing = Math.atan2(this.chargeDy, this.chargeDx);
       if (this.bossTimer <= 0) {
         this.bossState = "charge";
         this.bossTimer = 0.5;
@@ -261,10 +513,17 @@ export class Enemy {
   }
 
   tryContact(player) {
-    if (player.dead || player.invincible) return;
+    // A bomber sets dead mid-update (fuse-out) — don't also land a contact hit
+    // on the same frame it explodes.
+    if (this.dead || player.dead || player.invincible) return;
     if (dist(this.x, this.y, player.x, player.y) >= this.r + player.r) return;
     if (this.contactTimer > 0) return;
-    const charging = this.bossState === "charge";
+    // "Charging" = mid-lunge: the charge state flips to recover in one frame, so
+    // also treat a fast charger/boss moving TOWARD the player as charging. The
+    // toward-player test excludes knockback recoil (which points away).
+    const toward = this.vx * (player.x - this.x) + this.vy * (player.y - this.y) > 0;
+    const fast = (this.charger || this.isBoss) && toward && this.vx * this.vx + this.vy * this.vy > 360 * 360;
+    const charging = this.bossState === "charge" || this.chargeState === "charge" || fast;
     player.takeDamage(charging ? Math.round(this.damage * 1.6) : this.damage, this.x, this.y);
     this.contactTimer = charging ? 0.4 : this.contactInterval;
     const a = Math.atan2(this.y - player.y, this.x - player.x);
@@ -272,124 +531,7 @@ export class Enemy {
     this.vy += Math.sin(a) * 120;
   }
 
-  draw(ctx) {
-    const r = this.r;
-    const bob = Math.sin(this.wobble) * (this.isBoss ? 3 : 2);
-    const telegraph = this.bossState === "telegraph";
-    const flash = this.hurtFlash > 0 || telegraph;
-    ctx.save();
-    ctx.translate(this.x, this.y + bob);
-
-    ctx.fillStyle = "rgba(20, 24, 38, 0.26)";
-    ctx.beginPath();
-    ctx.ellipse(0, r * 0.85 - bob, r * 0.95, r * 0.4, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.lineJoin = "round";
-
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = this.isBoss ? 3 : 2;
-    for (const s of this.spikes) {
-      const a = s.a + Math.sin(this.wobble * 0.5) * 0.05;
-      const bx = Math.cos(a) * r * 0.7;
-      const by = Math.sin(a) * r * 0.7;
-      const tx = Math.cos(a) * r * s.len;
-      const ty = Math.sin(a) * r * s.len;
-      const px = Math.cos(a + Math.PI / 2) * r * s.w;
-      const py = Math.sin(a + Math.PI / 2) * r * s.w;
-      ctx.fillStyle = flash ? "#ffffff" : "#b9c9e6";
-      ctx.beginPath();
-      ctx.moveTo(bx + px, by + py);
-      ctx.lineTo(tx, ty);
-      ctx.lineTo(bx - px, by - py);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    const n = this.outline.length;
-    ctx.beginPath();
-    for (let i = 0; i <= n; i++) {
-      const idx = i % n;
-      const a = (idx / n) * Math.PI * 2;
-      const rad = r * this.outline[idx];
-      const px = Math.cos(a) * rad;
-      const py = Math.sin(a) * rad;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = flash ? (telegraph ? "#ffd0d0" : "#ffffff") : this.color;
-    ctx.fill();
-    // Chilled enemies get a frosty blue wash.
-    if (this.chillTimer > 0 && !flash) {
-      ctx.fillStyle = "rgba(150,210,255,0.34)";
-      ctx.fill();
-    }
-    ctx.lineWidth = this.isBoss ? 3.5 : 2.5;
-    ctx.strokeStyle = this.chillTimer > 0 && !flash ? "#9fd8ff" : INK;
-    ctx.stroke();
-
-    if (!flash) {
-      ctx.save();
-      ctx.clip();
-      ctx.fillStyle = "rgba(20,16,28,0.4)";
-      ctx.beginPath();
-      ctx.ellipse(r * 0.3, r * 0.45, r * 1.1, r * 0.9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(200, 215, 240, 0.4)";
-      for (const s of this.specks) {
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-
-    // Magic casters get a little hovering rune.
-    if (this.magic && !flash) {
-      ctx.strokeStyle = "rgba(190, 150, 255, 0.8)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(0, -r * 1.5, r * 0.3, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    if (this.isBoss) {
-      ctx.fillStyle = flash ? "#fff" : "#1c1620";
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 2;
-      for (const sx of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(sx * r * 0.35, -r * 0.8);
-        ctx.lineTo(sx * r * 0.62, -r * 1.45);
-        ctx.lineTo(sx * r * 0.7, -r * 0.7);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-
-    const ey = -r * 0.08;
-    ctx.fillStyle = INK;
-    ctx.beginPath();
-    ctx.arc(-r * 0.32, ey, r * 0.26, 0, Math.PI * 2);
-    ctx.arc(r * 0.32, ey, r * 0.26, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = flash ? "#ff5d5d" : this.eyeColor;
-    ctx.beginPath();
-    ctx.arc(-r * 0.3, ey + 0.02 * r, r * 0.13, 0, Math.PI * 2);
-    ctx.arc(r * 0.34, ey + 0.02 * r, r * 0.13, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-
-    if (!this.isBoss && this.hp < this.maxHp && !this.dead) {
-      const w = r * 2;
-      ctx.fillStyle = "rgba(10,12,20,0.55)";
-      ctx.fillRect(this.x - r, this.y - r * 2.1, w, 5);
-      ctx.fillStyle = "#8be29a";
-      ctx.fillRect(this.x - r, this.y - r * 2.1, w * (this.hp / this.maxHp), 5);
-    }
-  }
 }
+
+// Attach all rendering (the blobby silhouette + tells), mixed onto the prototype.
+applyEnemyArt(Enemy);
