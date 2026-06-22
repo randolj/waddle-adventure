@@ -86,6 +86,11 @@ export class Player {
     this.vy = 0;
     this.ix = 0;
     this.iy = 0;
+    // Last direction the player was actually moving (unit vector) — used to aim the
+    // touch double-tap lunge "the way you're walking" even if the move stick is
+    // momentarily released to perform the double-tap.
+    this.moveDirX = 0;
+    this.moveDirY = 0;
 
     // Dash state.
     this.dashTime = 0;
@@ -466,8 +471,22 @@ export class Player {
     if (this.dead) return;
     this.contactHits.length = 0; // refilled by the contact-dash below
 
-    this.facing = Math.atan2(worldMouse.y - this.y, worldMouse.x - this.x);
-    this.faceLeft = Math.cos(this.facing) < 0;
+    // Aim from the touch right-stick when engaged (twin-stick), else from the cursor —
+    // BUT a dash-strike commits to the heading it launched with: don't re-aim mid-lunge,
+    // or facing drifts back to the cursor/stale aim each frame and the strike (which
+    // resolves off this.facing) lands in the wrong direction even though the lunge moved
+    // the right way.
+    if (!(this.isDashStrike && this.attackTimer > 0)) {
+      if (input.aimActive) {
+        this.facing = Math.atan2(input.aimVec.y, input.aimVec.x);
+        this.faceLeft = Math.cos(this.facing) < 0;
+      } else if (input.mouseMoved) {
+        // Cursor aim — only when a real mouse has moved. On touch, mouseX/Y are stale,
+        // so DON'T snap to them; hold the last facing (from the aim stick / last lunge).
+        this.facing = Math.atan2(worldMouse.y - this.y, worldMouse.x - this.x);
+        this.faceLeft = Math.cos(this.facing) < 0;
+      }
+    }
 
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.iframe > 0) this.iframe -= dt;
@@ -484,7 +503,31 @@ export class Player {
     this.chainTarget = this.chainTargetIn(enemies);
 
     if (input.consumePress("shift", " ")) this.dashBuffer = INPUT_BUFFER;
-    if (input.consumeClick()) this.attackBuffer = INPUT_BUFFER;
+    // Click fires; pushing the touch aim-stick auto-fires (cooldown still gates the rate).
+    if (input.consumeClick() || input.aimActive) this.attackBuffer = INPUT_BUFFER;
+
+    // Touch "double-tap the aim side" => an on-demand lunge (dash-strike). Aim it where
+    // you're MOVING (the move stick), like a normal dash; if standing still, fall back
+    // to the last aim direction. Melee-only, same readiness as a dash (needs a cloak).
+    if (input.consumePress("lunge") && this.dashReady && this.stats.dashEnabled && !this.isRanged && !this.stats.dashBlink && this.cooldown <= 0 && this.attackTimer <= 0) {
+      // Aim where you're heading: the move stick now, else the direction you were just
+      // walking (the stick is usually released to perform the double-tap), else aim.
+      let lx = input.axisX;
+      let ly = input.axisY;
+      if (lx === 0 && ly === 0) {
+        lx = this.moveDirX;
+        ly = this.moveDirY;
+      }
+      if (lx === 0 && ly === 0 && input.aimVec) {
+        lx = input.aimVec.x;
+        ly = input.aimVec.y;
+      }
+      if (lx !== 0 || ly !== 0) {
+        this.facing = Math.atan2(ly, lx);
+        this.faceLeft = Math.cos(this.facing) < 0;
+      }
+      this.startDashStrike();
+    }
 
     // Dash requires a cloak equipped.
     if (this.dashBuffer > 0 && this.dashReady && this.stats.dashEnabled) {
@@ -527,6 +570,8 @@ export class Player {
       ay /= len;
       tvx = ax * this.stats.moveSpeed;
       tvy = ay * this.stats.moveSpeed;
+      this.moveDirX = ax; // remember heading for the double-tap lunge
+      this.moveDirY = ay;
     }
     const k = 1 - Math.exp(-MOVE_SMOOTH_K * dt);
     this.vx += (tvx - this.vx) * k;

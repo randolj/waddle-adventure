@@ -4,6 +4,29 @@ export function clamp(v, min, max) {
   return v < min ? min : v > max ? max : v;
 }
 
+// Scale a fixed-size overlay (designed at refW × refH) to fit the real viewport,
+// centred and never upscaled — so the same canvas UI fits any phone orientation.
+// The caller draws its full-screen backdrop FIRST (at the real w,h), then calls this,
+// then renders content using the returned ref-space dims + transformed mouse coords,
+// then calls done() to pop the transform. mx/my map the pointer into ref space so all
+// the existing hit-tests keep working unchanged.
+export function fitScale(ctx, w, h, refW, refH, input) {
+  const s = Math.min(1, w / refW, h / refH);
+  const ox = (w - refW * s) / 2;
+  const oy = (h - refH * s) / 2;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(s, s);
+  return {
+    w: refW,
+    h: refH,
+    s,
+    mx: (input.mouseX - ox) / s,
+    my: (input.mouseY - oy) / s,
+    done: () => ctx.restore(),
+  };
+}
+
 export function dist(ax, ay, bx, by) {
   return Math.hypot(bx - ax, by - ay);
 }

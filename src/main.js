@@ -1,4 +1,5 @@
 import { Input } from "./input.js";
+import { TouchControls } from "./touch.js";
 import { Camera } from "./camera.js";
 import { World } from "./world.js";
 import { Player } from "./player.js";
@@ -11,7 +12,7 @@ import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, d
 import { MetaUI } from "./metaui.js";
 import { MenuScreen } from "./menu.js";
 import { Fx } from "./fx.js";
-import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
+import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawWaypoints, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
 import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest } from "./meta.js";
 import { BIOMES } from "./biomes.js";
 import { sfx, resumeAudio, toggleMute, isMuted } from "./sfx.js";
@@ -38,6 +39,7 @@ const AMBIENT = {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const input = new Input(canvas);
+const touch = new TouchControls(canvas, input);
 const camera = new Camera();
 const ui = new InventoryUI();
 const metaUi = new MetaUI();
@@ -110,7 +112,25 @@ function resize() {
   canvas.height = Math.floor(window.innerHeight * dpr);
 }
 window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", resize);
+// The visual viewport changes (without a window resize) when a mobile URL bar
+// collapses/expands on scroll — keep the canvas matched to the visible area.
+if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
 resize();
+
+// Mobile: collapse the browser chrome by entering fullscreen on the first touch.
+// Android/Chrome honour this; iOS Safari has no element-fullscreen API, so there the
+// PWA "Add to Home Screen" route (see index.html meta tags) is the way to true fullscreen.
+window.addEventListener(
+  "touchstart",
+  () => {
+    if ((navigator.maxTouchPoints || 0) === 0) return; // desktop: don't fullscreen the window
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { try { req.call(el); } catch (e) {} }
+  },
+  { once: true, passive: true }
+);
 
 function viewSize() {
   return { w: canvas.width / dpr, h: canvas.height / dpr };
@@ -731,6 +751,7 @@ window.__game = {
   debug,
   debugApi,
   input,
+  touch,
   enterDungeon,
   descendDungeon,
   exitDungeon,
@@ -833,6 +854,13 @@ function update(dt) {
     nearChest = droom.type === "treasure" && !droom.looted && !player.dead && dist(player.x, player.y, dit.cx, dit.cy) < 80;
     nearFountain = droom.type === "heal" && !droom.drained && !player.dead && dist(player.x, player.y, dit.cx, dit.cy) < 80;
   }
+
+  // Is there anything E would act on right now? Drives the touch E button's visibility.
+  const nearPortal = scene === "dungeon" && !player.dead && portals.some((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
+  input.canInteract = !!(nearChest || nearFountain || nearPortal || nearElder || nearShop || nearTownShop || nearQuartermaster || nearDungeon);
+  // Recall-to-camp is an overworld convenience (not from a dungeon dive) and pointless
+  // when you're already in the camp safe zone — gates the touch CAMP button.
+  input.canRecall = scene === "overworld" && !player.dead && !world.inZone(world.safeZone, player.x, player.y);
 
   // Context action (E): shop / elder / quartermaster / enter dungeon / portals.
   if (input.consumePress("e")) {
@@ -1160,6 +1188,9 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
+  // Touch: route taps to the cursor whenever an overlay is up or no char is in play.
+  input.touchUi = scene === "menu" || ui.isOpen() || metaUi.isOpen() || debug.isOpen() || (player && player.dead) || victory;
+
   // Title screen replaces the whole frame.
   const hintEl = document.getElementById("hint");
   if (scene === "menu") {
@@ -1170,7 +1201,7 @@ function render() {
   if (hintEl) hintEl.style.display = "";
 
   // Per-frame state bundle for the HUD/overlay draws (hud.js).
-  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, itemPickups, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
+  const view = { ctx, w, h, player, scene, dungeon, world, camera, touch, pickups, projectiles, portals, kills, mapMode, banner, toasts, itemPickups, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
 
   const shx = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
   const shy = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
@@ -1217,6 +1248,7 @@ function render() {
     else if (nearChest && !ui.isOpen()) drawPrompt(view, "Press E to open the chest", "#ffd166");
     else if (nearFountain && !ui.isOpen()) drawPrompt(view, "Press E to drink — heal up", "#7CFC9B");
   } else {
+    drawWaypoints(view); // touch wayfinder arrows to camp + towns (gated to touch devices)
     if (!ui.isOpen() && !metaUi.isOpen()) {
       if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");
       else if (nearShop) drawPrompt(view, "Press E to shop", "#ffd166");
@@ -1228,6 +1260,8 @@ function render() {
       if (mapMode !== "off") drawMap(ctx, mapMode, { world, player, enemies, camera, viewW: w, viewH: h });
     }
   }
+
+  touch.draw(ctx, w, h); // on-screen sticks/buttons (self-gates: touch only, hidden under overlays)
 
   if (player.dead) drawGameOver(view);
   if (victory) drawVictory(view);

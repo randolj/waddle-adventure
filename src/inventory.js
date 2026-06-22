@@ -2,7 +2,7 @@
 // together in render(); the caller pauses the game while this is open.
 
 import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, sellValue, itemPower } from "./items.js";
-import { roundRect as rr } from "./utils.js";
+import { roundRect as rr, fitScale } from "./utils.js";
 
 const MOD_LABEL = {
   meleeDamage: "dmg",
@@ -317,13 +317,17 @@ export class InventoryUI {
   }
 
   render(ctx, w, h, player, input) {
-    const mx = input.mouseX;
-    const my = input.mouseY;
-    const clicked = input.consumeClick();
-    const hit = (x, y, bw, bh) => mx >= x && mx <= x + bw && my >= y && my <= y + bh;
-
+    // Dim the whole real screen, then scale the fixed-size panel to fit any viewport
+    // (so the bag fits portrait/landscape phones). Pointer coords map into ref space.
     ctx.fillStyle = "rgba(8,10,18,0.66)";
     ctx.fillRect(0, 0, w, h);
+    const fit = fitScale(ctx, w, h, 768, 560, input);
+    w = fit.w;
+    h = fit.h;
+    const mx = fit.mx;
+    const my = fit.my;
+    const clicked = input.consumeClick();
+    const hit = (x, y, bw, bh) => mx >= x && mx <= x + bw && my >= y && my <= y + bh;
 
     const pw = Math.min(720, w - 48);
     const ph = Math.min(520, h - 48);
@@ -363,6 +367,7 @@ export class InventoryUI {
     ctx.stroke();
     if (clicked && hit(cb.x, cb.y, cb.w, cb.h)) {
       this.close();
+      fit.done();
       return;
     }
 
@@ -653,6 +658,7 @@ export class InventoryUI {
     // Click outside the panel closes.
     if (clicked && !hit(px, py, pw, ph)) this.close();
 
+    fit.done();
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
   }

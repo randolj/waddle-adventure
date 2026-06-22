@@ -6,9 +6,27 @@ export class Input {
     this.pressed = new Set(); // key-down edges, awaiting consumePress()
     this.mouseX = 0;
     this.mouseY = 0;
+    this.mouseMoved = false; // a real mouse has moved — so mouseX/Y are meaningful (not on touch)
     this.mouseDown = false;
     this.clicked = false; // true for one frame after a press; cleared by consumeClick()
     this.wheelY = 0; // accumulated wheel delta; drained by consumeWheel()
+
+    // --- Touch bridge (written by TouchControls in touch.js) ---
+    // Virtual left-stick movement, summed into axisX/axisY below.
+    this.touchMove = { x: 0, y: 0 };
+    // Virtual right-stick aim: a unit direction + an "engaged" flag. When active,
+    // player.js drives `facing` from this and auto-fires (twin-stick).
+    this.aimVec = { x: 1, y: 0 };
+    this.aimActive = false;
+    // True while an overlay/menu is open or no character is in play — TouchControls
+    // then routes touches to the cursor (mouseX/mouseY/clicked) instead of the sticks.
+    this.touchUi = false;
+    // True while the player is standing on/next to something E would act on — the
+    // touch E button only shows then (set each frame by main.js).
+    this.canInteract = false;
+    // True while a recall-to-camp is possible (overworld, alive, not already at camp)
+    // — gates the touch CAMP button (set each frame by main.js).
+    this.canRecall = false;
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
@@ -23,6 +41,7 @@ export class Input {
       const rect = canvas.getBoundingClientRect();
       this.mouseX = e.clientX - rect.left;
       this.mouseY = e.clientY - rect.top;
+      this.mouseMoved = true;
     });
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0) {
@@ -58,12 +77,27 @@ export class Input {
     return false;
   }
 
-  // Movement axis from WASD / arrow keys, range [-1, 1] per axis.
+  // Movement axis from WASD / arrow keys (+ the touch left-stick), range [-1, 1].
   get axisX() {
-    return (this.isDown("d", "arrowright") ? 1 : 0) - (this.isDown("a", "arrowleft") ? 1 : 0);
+    const kb = (this.isDown("d", "arrowright") ? 1 : 0) - (this.isDown("a", "arrowleft") ? 1 : 0);
+    const v = kb + this.touchMove.x;
+    return v < -1 ? -1 : v > 1 ? 1 : v;
   }
   get axisY() {
-    return (this.isDown("s", "arrowdown") ? 1 : 0) - (this.isDown("w", "arrowup") ? 1 : 0);
+    const kb = (this.isDown("s", "arrowdown") ? 1 : 0) - (this.isDown("w", "arrowup") ? 1 : 0);
+    const v = kb + this.touchMove.y;
+    return v < -1 ? -1 : v > 1 ? 1 : v;
+  }
+
+  // Synthesise a key-press edge (touch buttons reuse the keyboard consumePress paths).
+  injectPress(k) {
+    this.pressed.add(k);
+  }
+
+  // Hold/release a key (hold-style touch buttons reuse the keyboard isDown paths).
+  injectHold(k, down) {
+    if (down) this.keys.add(k);
+    else this.keys.delete(k);
   }
 
   consumeClick() {

@@ -4,7 +4,7 @@
 // pickups, portals, ambient, spawners, chain target) are called inside the
 // camera transform; the rest are screen-space.
 
-import { roundRect } from "./utils.js";
+import { roundRect, dist } from "./utils.js";
 import { BIOMES } from "./biomes.js";
 import { depthColor, dungeonConfig, FINAL_DEPTH } from "./dungeon.js";
 import { WEAPON_TYPE_NAMES, RARITIES, RARITY_ORDER, recommendedPower, itemPower } from "./items.js";
@@ -502,6 +502,127 @@ export function drawItemPickups(view) {
     ctx.fillText("⚡" + itemPower(item), x0 + cw - 16, cy + 6);
     ctx.restore();
   });
+  ctx.globalAlpha = 1;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+// A focused two-marker wayfinder for touch play (no minimap on mobile, since the M
+// toggle is keyboard-only). Always surfaces (1) the NEAREST safe area — your heal /
+// retreat point — and (2) the dungeon whose recommended power best MATCHES your gear
+// power — your "go fight here" progression target. Each shows as an edge arrow when
+// off-screen or a pin when visible; both skip once you're basically on top of them.
+// Gated to touch devices so desktop keeps its minimap.
+export function drawWaypoints(view) {
+  const { ctx, w, h, scene, world, camera, player, touch } = view;
+  if (scene !== "overworld" || !world || !camera || player.dead) return;
+  if (!touch || !touch.capable) return;
+
+  const targets = [];
+
+  // (1) Nearest safe area (camp or town).
+  const safe = [{ x: world.safeZone.x + world.safeZone.w / 2, y: world.safeZone.y + world.safeZone.h / 2, color: "#7CFC9B", label: "Camp" }];
+  for (const t of world.towns) {
+    safe.push({ x: t.cx, y: t.cy, color: (BIOMES[t.biome] && BIOMES[t.biome].accent) || "#7fd2ff", label: t.name });
+  }
+  let near = null;
+  let nd = Infinity;
+  for (const s of safe) {
+    const d = dist(player.x, player.y, s.x, s.y);
+    if (d < nd) { nd = d; near = s; }
+  }
+  if (near) targets.push({ x: near.x, y: near.y, color: near.color, label: near.label, sub: "heal" });
+
+  // (2) Dungeon whose recommended power best matches the player's power.
+  let best = null;
+  let bestDiff = Infinity;
+  for (const dg of world.dungeons || []) {
+    const diff = Math.abs(recommendedPower(dg.tierIndex + 1) - (player.power || 0));
+    // On a tie, prefer the higher tier (push progression forward).
+    if (diff < bestDiff || (diff === bestDiff && best && dg.tierIndex > best.tierIndex)) {
+      bestDiff = diff;
+      best = dg;
+    }
+  }
+  if (best) {
+    targets.push({
+      x: best.x,
+      y: best.y,
+      color: depthColor(best.tierIndex + 1),
+      label: BIOMES[best.biome] ? BIOMES[best.biome].name : "Dungeon",
+      sub: "⚡" + recommendedPower(best.tierIndex + 1),
+    });
+  }
+
+  const cxs = w / 2;
+  const cys = h / 2;
+  const margin = 56;
+  const halfW = w / 2 - margin;
+  const halfH = h / 2 - margin;
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const placed = [];
+  for (const tg of targets) {
+    if (dist(player.x, player.y, tg.x, tg.y) < 220) continue; // you're basically there
+    let ex = tg.x - camera.x;
+    let ey = tg.y - camera.y;
+    const onScreen = ex > margin && ex < w - margin && ey > margin && ey < h - margin;
+    let ang = 0;
+    if (!onScreen) {
+      const dx = ex - cxs;
+      const dy = ey - cys;
+      const k = Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH, 1);
+      ex = cxs + dx / k;
+      ey = cys + dy / k;
+      ang = Math.atan2(dy, dx);
+    }
+    // Nudge apart if the two markers would overlap.
+    for (const p of placed) {
+      if (Math.hypot(p.x - ex, p.y - ey) < 80) ey += ey > cys ? -64 : 64;
+    }
+    placed.push({ x: ex, y: ey });
+
+    // Backing disc.
+    ctx.globalAlpha = 0.94;
+    ctx.beginPath();
+    ctx.arc(ex, ey, 17, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(10,14,24,0.74)";
+    ctx.fill();
+    ctx.strokeStyle = tg.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    if (onScreen) {
+      ctx.beginPath();
+      ctx.arc(ex, ey, 4, 0, Math.PI * 2);
+      ctx.fillStyle = tg.color;
+      ctx.fill();
+    } else {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate(ang);
+      ctx.fillStyle = tg.color;
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(-3, -6);
+      ctx.lineTo(-3, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Label: name + (sub · distance), nudged toward screen centre when it's an arrow.
+    const lx = onScreen ? ex : ex - Math.cos(ang) * 34;
+    const ly = onScreen ? ey - 26 : ey - Math.sin(ang) * 34;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = tg.color;
+    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.fillText(tg.label, lx, ly - 6);
+    ctx.fillStyle = "rgba(205,213,226,0.85)";
+    ctx.font = "600 10px -apple-system, sans-serif";
+    ctx.fillText(tg.sub + " · " + Math.round(dist(player.x, player.y, tg.x, tg.y)) + "m", lx, ly + 6);
+  }
+  ctx.restore();
   ctx.globalAlpha = 1;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";

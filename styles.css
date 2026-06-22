@@ -7,11 +7,19 @@
 html, body {
   width: 100%;
   height: 100%;
+  /* dvh = the *dynamic* viewport, so the canvas fills the area left when a mobile
+     browser's URL bar collapses on scroll, and resizes as it does. */
+  height: 100dvh;
   overflow: hidden;
   background: #0b1020;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-user-select: none;
   user-select: none;
+  /* Stop iOS rubber-band / double-tap zoom / long-press callouts during play. */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #game-wrap {
@@ -29,7 +37,7 @@ html, body {
 #hint {
   position: fixed;
   left: 50%;
-  bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   padding: 8px 16px;
   border-radius: 999px;
@@ -45,4 +53,15 @@ html, body {
 #hint strong {
   color: #ffd166;
   font-weight: 700;
+}
+
+/* On touch devices the on-screen buttons are labelled, so the keyboard hint is
+   redundant (and would overlap the controls). Hide it for coarse pointers. */
+@media (pointer: coarse), (hover: none) {
+  #hint {
+    display: none;
+  }
+  #game {
+    cursor: none;
+  }
 }

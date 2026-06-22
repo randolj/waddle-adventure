@@ -5,8 +5,12 @@
 
 import { CLASSES, CLASS_NAMES, RARITIES, SLOT_NAMES, WEAPON_TYPE_NAMES } from "./items.js";
 import { BODY_PALETTE } from "./player.js";
-import { roundRect as rr } from "./utils.js";
+import { roundRect as rr, fitScale } from "./utils.js";
 import { getChars, getChar, hasChar, deleteChar, getShards, getStash, stashAdd, stashTake, saveChar } from "./meta.js";
+
+// Design size of the title screen; smaller/portrait viewports scale it down to fit.
+const MENU_W = 860;
+const MENU_H = 620;
 
 const CLASS_INFO = {
   drifter: {
@@ -220,10 +224,39 @@ export class MenuScreen {
   }
 
   render(ctx, w, h, input, api) {
-    const mx = input.mouseX;
-    const my = input.mouseY;
+    const realW = w;
+    const realH = h;
     const clicked = input.consumeClick();
     this.wheel = input.consumeWheel ? input.consumeWheel() : 0;
+
+    // Icy backdrop fills the real screen.
+    const g = ctx.createLinearGradient(0, 0, 0, realH);
+    g.addColorStop(0, "#0e1d33");
+    g.addColorStop(0.55, "#15294a");
+    g.addColorStop(1, "#0c1726");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, realW, realH);
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 197.3) % realW;
+      const sy = ((i * 113.7 + this.t * 14) % (realH + 20)) - 10;
+      ctx.fillStyle = "rgba(220,238,255,0.18)";
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Scale the menu to fit smaller / portrait viewports; desktop renders 1:1.
+    let fit = null;
+    let mx = input.mouseX;
+    let my = input.mouseY;
+    if (realW < MENU_W || realH < MENU_H) {
+      fit = fitScale(ctx, realW, realH, MENU_W, MENU_H, input);
+      w = fit.w;
+      h = fit.h;
+      mx = fit.mx;
+      my = fit.my;
+    }
+
     const hit = (x, y, bw, bh) => mx >= x && mx <= x + bw && my >= y && my <= y + bh;
     const btn = (x, y, bw, bh, label, color, on, sub) => {
       const hov = hit(x, y, bw, bh);
@@ -246,33 +279,19 @@ export class MenuScreen {
       return clicked && hov;
     };
 
-    // Icy backdrop.
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, "#0e1d33");
-    g.addColorStop(0.55, "#15294a");
-    g.addColorStop(1, "#0c1726");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 40; i++) {
-      const sx = (i * 197.3) % w;
-      const sy = ((i * 113.7 + this.t * 14) % (h + 20)) - 10;
-      ctx.fillStyle = "rgba(220,238,255,0.18)";
-      ctx.beginPath();
-      ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
     const cx = w / 2;
     if (this.mode === "main") this.renderMain(ctx, w, h, cx, hit, btn, clicked, api);
     else if (this.mode === "howto") this.renderText(ctx, w, h, cx, hit, btn, "How to Play", api);
     else if (this.mode === "classes") this.renderClasses(ctx, w, h, cx, hit, btn);
     else if (this.mode === "stash") this.renderStash(ctx, w, h, cx, hit, btn, clicked);
 
-    // Shards (account-wide) — always shown top-right.
+    if (fit) fit.done();
+
+    // Shards (account-wide) — always shown in the real top-right corner.
     ctx.textAlign = "right";
     ctx.font = "700 16px -apple-system, sans-serif";
     ctx.fillStyle = "#7fd2ff";
-    ctx.fillText(`✦ ${getShards()}`, w - 22, 30);
+    ctx.fillText(`✦ ${getShards()}`, realW - 22, 30);
     ctx.textAlign = "left";
   }
 
