@@ -93,10 +93,30 @@ function template(id) {
   return ITEM_TEMPLATES.find((t) => t.id === id);
 }
 
+// --- Item Power (gear score / "ilvl") -------------------------------------
+// Power scales mostly with WHERE an item dropped (`sourceLevel` = dungeon depth
+// or overworld tier+1), nudged by rarity + quality. The player's Power Level is
+// the average of their equipped items' power — the looter-shooter chase number.
+function powerFor(sourceLevel, rarity, quality) {
+  const lvl = Math.max(1, Math.floor(sourceLevel || 1));
+  const rIdx = Math.max(0, RARITY_ORDER.indexOf(rarity));
+  return Math.max(1, Math.round(lvl * 8 + rIdx * 6 + ((quality || 100) - 100) / 8));
+}
+// Read an item's power, with a fallback for legacy saves that predate the field.
+export function itemPower(item) {
+  if (!item) return 0;
+  if (item.power != null) return item.power;
+  return powerFor(1, item.rarity, item.quality);
+}
+// Recommended Power for content at a given depth (≈ the gear it drops).
+export function recommendedPower(depth) {
+  return Math.max(1, Math.round((depth || 1) * 8));
+}
+
 // Create a fresh item instance from a template (or template id).
 export function makeItem(templateOrId) {
   const t = typeof templateOrId === "string" ? template(templateOrId) : templateOrId;
-  const item = { uid: uidCounter++, id: t.id, name: t.name, slot: t.slot, rarity: t.rarity, color: t.color, desc: t.desc, mods: { ...t.mods } };
+  const item = { uid: uidCounter++, id: t.id, name: t.name, slot: t.slot, rarity: t.rarity, color: t.color, desc: t.desc, mods: { ...t.mods }, power: powerFor(1, t.rarity, 100) };
   if (t.weaponType) item.weaponType = t.weaponType; // top-level, not a stat mod
   if (t.classes) item.classes = [...t.classes]; // class-locked armor
   return item;
@@ -109,7 +129,7 @@ export function sellValue(item) {
 }
 
 // A sealed relic — can't be equipped until decoded by the camp elder.
-export function makeSealedRelic() {
+export function makeSealedRelic(sourceLevel = 5) {
   return {
     uid: uidCounter++,
     id: "sealed_relic",
@@ -119,6 +139,8 @@ export function makeSealedRelic() {
     color: "#ef9f27",
     desc: "Ancient and unreadable. Bring it to the elder to decode.",
     relic: true,
+    srcLevel: sourceLevel, // remembers its drop depth so the decoded item's power matches
+    power: powerFor(sourceLevel, "legendary", 100),
     mods: {},
   };
 }
@@ -179,11 +201,12 @@ function composeName(base, affixes) {
 const NOSCALE_MODS = new Set(["hitCount", "windup", "projR"]);
 
 // Create a procedurally-rolled item (quality variance + affixes).
-export function rollItem(templateOrId) {
+export function rollItem(templateOrId, sourceLevel = 1) {
   const t = typeof templateOrId === "string" ? template(templateOrId) : templateOrId;
   const item = makeItem(t);
   const q = 0.8 + Math.random() * 0.5; // 0.8..1.3
   item.quality = Math.round(q * 100);
+  item.power = powerFor(sourceLevel, t.rarity, item.quality); // gear score from where it dropped
   for (const k of Object.keys(item.mods)) {
     if (typeof item.mods[k] === "number" && !NOSCALE_MODS.has(k)) item.mods[k] = roundMod(item.mods[k] * q);
   }
@@ -197,13 +220,13 @@ export function rollItem(templateOrId) {
 
 // Decode a sealed relic into a random rolled legendary item. A guaranteed reward
 // shouldn't be class-locked armor you can't wear, so exclude off-class armor.
-export function decodeRelic(rng = Math.random, forClass = null) {
+export function decodeRelic(rng = Math.random, forClass = null, sourceLevel = 5) {
   let legends = ITEM_TEMPLATES.filter((t) => t.rarity === "legendary");
   if (forClass) {
     const wearable = legends.filter((t) => !t.classes || t.classes.includes(forClass));
     if (wearable.length) legends = wearable;
   }
-  return rollItem(legends[Math.floor(rng() * legends.length)]);
+  return rollItem(legends[Math.floor(rng() * legends.length)], sourceLevel);
 }
 
 function weightedRarity(rng) {
@@ -241,7 +264,7 @@ export function rollShopStock(count = 6, rng = Math.random, tier = 0) {
       const cand = rollDropTemplate(rng);
       if (RARITY_ORDER.indexOf(cand.rarity) > RARITY_ORDER.indexOf(t.rarity)) t = cand;
     }
-    stock.push({ item: rollItem(t), price: Math.round(RARITIES[t.rarity].price * (1 + tier * 0.15)) });
+    stock.push({ item: rollItem(t, tier + 1), price: Math.round(RARITIES[t.rarity].price * (1 + tier * 0.15)) });
   }
   return stock;
 }

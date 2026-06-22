@@ -11,7 +11,7 @@ import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, d
 import { MetaUI } from "./metaui.js";
 import { MenuScreen } from "./menu.js";
 import { Fx } from "./fx.js";
-import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
+import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
 import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest } from "./meta.js";
 import { BIOMES } from "./biomes.js";
 import { sfx, resumeAudio, toggleMute, isMuted } from "./sfx.js";
@@ -63,6 +63,8 @@ const grainPattern = makeGrainPattern();
 
 let world, player, enemies, spawnTimer, kills, dpr;
 let pickups, toasts, shopStock, projectiles;
+// Gear-acquired cards (a richer popup than coin toasts) — {item, t}.
+let itemPickups = [];
 let scene = "overworld"; // "overworld" | "dungeon"
 let dungeon = null;
 let returnPos = null;
@@ -75,6 +77,8 @@ let nearElder = false;
 let nearQuartermaster = false;
 let nearTownShop = null; // the town whose shop the player is standing at
 let nearDungeon = null;
+let nearChest = false; // standing at an unopened treasure chest
+let nearFountain = false; // standing at an unused healing fountain
 let recallTimer = 0; // charge while holding R in the overworld; teleports to camp at RECALL_HOLD
 
 // --- Run / extraction state ---
@@ -119,6 +123,7 @@ function buildGameFor(cls, profile) {
   enemies = [];
   pickups = [];
   toasts = [];
+  itemPickups = [];
   projectiles = [];
   shopStock = rollShopStock(6, Math.random, 0); // camp shop (tier 0)
   for (const t of world.towns) t.stock = rollShopStock(6, Math.random, t.tier); // tiered town shops
@@ -270,13 +275,15 @@ function addToast(text, color) {
 function updateToasts(dt) {
   for (const t of toasts) t.t -= dt;
   toasts = toasts.filter((t) => t.t > 0);
+  for (const ip of itemPickups) ip.t -= dt;
+  if (itemPickups.some((ip) => ip.t <= 0)) itemPickups = itemPickups.filter((ip) => ip.t > 0);
 }
 
 // --- Loot (overworld kills) ---
 function dropLoot(x, y) {
   pickups.push({ kind: "coin", x, y, amount: 2 + Math.floor(Math.random() * 4), t: 0 });
   if (Math.random() < ITEM_DROP_CHANCE + metaBonuses().dropChance) {
-    const item = rollItem(rollDropTemplate(Math.random, player.class));
+    const item = rollItem(rollDropTemplate(Math.random, player.class), world.tierAt(x, y) + 1);
     pickups.push({ kind: "item", x: x + (Math.random() - 0.5) * 24, y: y + (Math.random() - 0.5) * 24, item, t: 0 });
   }
 }
@@ -298,7 +305,8 @@ function updatePickups(dt) {
         sfx.coin();
       } else {
         player.addItem(p.item);
-        addToast(`+ ${p.item.name}`, RARITIES[p.item.rarity].color);
+        // Gear gets a dedicated "acquired" card (drawItemPickups) — not a coin-style toast.
+        itemPickups.push({ item: p.item, t: 3.4 });
         sfx.item();
       }
       p.collected = true;
@@ -540,12 +548,12 @@ function completeDungeon() {
   player.coins += coins;
   addToast(`Dungeon cleared!  +${coins} coins`, "#ffd166");
   for (let i = 0; i < (reward.items || 0); i++) {
-    const item = rollItem(rollDropTemplate(Math.random, player.class));
+    const item = rollItem(rollDropTemplate(Math.random, player.class), dungeon.depth);
     player.addItem(item);
     addToast(`+ ${item.name}`, RARITIES[item.rarity].color);
   }
   if (reward.relic) {
-    player.addItem(makeSealedRelic());
+    player.addItem(makeSealedRelic(dungeon.depth));
     addToast("+ Sealed Relic — decode at the Elder", "#ef9f27");
   }
 
@@ -581,7 +589,7 @@ function decodeRelics() {
   }
   for (const r of relics) {
     player.removeItem(r);
-    const legend = decodeRelic(Math.random, player.class);
+    const legend = decodeRelic(Math.random, player.class, r.srcLevel || 5);
     player.addItem(legend);
     addToast(`Decoded: ${legend.name}!`, "#ef9f27");
     sfx.decode();
@@ -789,6 +797,7 @@ function update(dt) {
   }
 
   if (scene === "overworld") {
+    nearChest = nearFountain = false;
     nearShop = !player.dead && dist(player.x, player.y, world.shop.x, world.shop.y) < 78;
     nearElder = !player.dead && dist(player.x, player.y, world.elder.x, world.elder.y) < 72;
     nearQuartermaster = !player.dead && dist(player.x, player.y, world.quartermaster.x, world.quartermaster.y) < 72;
@@ -818,6 +827,11 @@ function update(dt) {
     nearShop = nearElder = nearQuartermaster = false;
     nearTownShop = null;
     nearDungeon = hoverDungeon = null;
+    // Dungeon interactables — chest in a treasure room, fountain in a heal room.
+    const droom = dungeon.currentRoom;
+    const dit = dungeon.interior;
+    nearChest = droom.type === "treasure" && !droom.looted && !player.dead && dist(player.x, player.y, dit.cx, dit.cy) < 80;
+    nearFountain = droom.type === "heal" && !droom.drained && !player.dead && dist(player.x, player.y, dit.cx, dit.cy) < 80;
   }
 
   // Context action (E): shop / elder / quartermaster / enter dungeon / portals.
@@ -829,7 +843,8 @@ function update(dt) {
       if (p) {
         if (p.label === "Descend") descendDungeon();
         else exitDungeon();
-      }
+      } else if (nearChest) openChest();
+      else if (nearFountain) useFountain();
     } else if (nearElder) decodeRelics();
     else if (nearShop) ui.openShop(shopStock, "Camp shop");
     else if (nearTownShop) ui.openShop(nearTownShop.stock, `${nearTownShop.name} — tier ${nearTownShop.tier} shop`);
@@ -952,9 +967,11 @@ function update(dt) {
     if (dungeon.currentRoom !== roomBefore) {
       projectiles.length = 0;
       pickups.length = 0;
+      const rt = dungeon.currentRoom.type;
+      if (rt === "treasure") banner = { text: "Treasure room — open the chest", t: 2, safe: true };
+      else if (rt === "heal") banner = { text: "A healing spring", t: 2, safe: true };
     }
     if (dungeon.complete && !wasComplete) completeDungeon();
-    handleTreasure();
     updatePickups(dt);
     player.healing = false;
   } else {
@@ -1021,15 +1038,33 @@ function update(dt) {
   camera.follow(player, w, h, level.width, level.height, dt, Math.cos(player.facing), Math.sin(player.facing));
 }
 
-function handleTreasure() {
+// Open the treasure-room chest (E-interact) — spills the loot it was guarding.
+function openChest() {
   const room = dungeon.currentRoom;
   if (room.type !== "treasure" || room.looted) return;
   room.looted = true;
   const it = dungeon.interior;
-  pickups.push({ kind: "item", x: it.cx, y: it.cy - 30, item: rollItem(rollDropTemplate(Math.random, player.class)), t: 0 });
-  pickups.push({ kind: "coin", x: it.cx - 44, y: it.cy + 20, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
-  pickups.push({ kind: "coin", x: it.cx + 44, y: it.cy + 20, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
-  addToast("Treasure room!", "#ffd166");
+  pickups.push({ kind: "item", x: it.cx, y: it.cy - 40, item: rollItem(rollDropTemplate(Math.random, player.class), dungeon.depth), t: 0 });
+  pickups.push({ kind: "coin", x: it.cx - 46, y: it.cy + 14, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
+  pickups.push({ kind: "coin", x: it.cx + 46, y: it.cy + 14, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
+  addToast("The chest yields its treasure!", "#ffd166");
+  spawnBurst(it.cx, it.cy, 18, "#ffd166", 240, 3.5, 0.5);
+  addRing(it.cx, it.cy, 8, 76, 0.5, "#ffe27a", 4);
+  sfx.item();
+}
+
+// Drink from the healing-room fountain (E-interact) — one full heal per dungeon.
+function useFountain() {
+  const room = dungeon.currentRoom;
+  if (room.type !== "heal" || room.drained) return;
+  room.drained = true;
+  player.hp = player.maxHp;
+  prevHp = player.hp;
+  addToast("The spring restores you — fully healed", "#7CFC9B");
+  const it = dungeon.interior;
+  spawnBurst(it.cx, it.cy, 16, "#9bffc0", 200, 3, 0.6);
+  addRing(player.x, player.y, player.r * 0.5, player.r * 3.2, 0.5, "#9bffc0", 4);
+  sfx.coin();
 }
 
 // Build queued child enemies (summoner minions, splitter halves) and add them to
@@ -1093,6 +1128,16 @@ function onEnemyDeath(e) {
         combo = 0;
       }
     }
+    // The blast also hurts (and knocks back) nearby enemies — lure packs onto a
+    // bomber, or chain one bomber into another.
+    for (const o of enemies) {
+      if (o === e || o.dead) continue;
+      if (dist(e.x, e.y, o.x, o.y) > R + o.r) continue;
+      const a = Math.atan2(o.y - e.y, o.x - e.x);
+      const dealt = o.takeHit(e.boomDmg, a, 240);
+      spawnBurst(o.x, o.y, 5, "#ff9a3a", 200, 2.6, 0.3);
+      addFloater(o.x, o.y - o.r, `${dealt}`, "#ffb060", 13);
+    }
     return;
   }
   // Splitter cleaves into two smaller, non-splitting copies (flushed right after
@@ -1125,7 +1170,7 @@ function render() {
   if (hintEl) hintEl.style.display = "";
 
   // Per-frame state bundle for the HUD/overlay draws (hud.js).
-  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
+  const view = { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, itemPickups, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
 
   const shx = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
   const shy = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
@@ -1160,6 +1205,7 @@ function render() {
   drawHud(view);
   drawBanner(view);
   drawToasts(view);
+  drawItemPickups(view);
   drawDamageIndicator(view);
   drawCombo(view);
 
@@ -1168,6 +1214,8 @@ function render() {
     drawRoomMap(view);
     const onPortal = portals.some((p) => p.room === dungeon.currentRoom && dist(player.x, player.y, p.x, p.y) < player.r + p.r);
     if (onPortal && !ui.isOpen()) drawPrompt(view, "Press E to leave", "#bff0ff");
+    else if (nearChest && !ui.isOpen()) drawPrompt(view, "Press E to open the chest", "#ffd166");
+    else if (nearFountain && !ui.isOpen()) drawPrompt(view, "Press E to drink — heal up", "#7CFC9B");
   } else {
     if (!ui.isOpen() && !metaUi.isOpen()) {
       if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");

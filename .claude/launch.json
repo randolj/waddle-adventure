@@ -4,8 +4,9 @@
     {
       "name": "penguin-poc",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5577"],
-      "port": 5577
+      "runtimeArgs": ["serve.py"],
+      "port": 5577,
+      "autoPort": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { clamp, angleDiff, roughOutline } from "./utils.js";
-import { makeItem, SLOTS, RANGED_TYPES } from "./items.js";
+import { makeItem, SLOTS, RANGED_TYPES, itemPower } from "./items.js";
 import { metaBonuses, getClass } from "./meta.js";
 import { applyPlayerArt, BODY_PALETTE, GHOST_LIFE } from "./playerart.js";
 
@@ -204,6 +204,18 @@ export class Player {
     s.attackCooldown = Math.max(0.05, s.attackCooldown);
     this.stats = s;
     this.maxHp = s.maxHp;
+
+    // Power Level = average of equipped items' power (the gear-chase number).
+    let pSum = 0;
+    let pCount = 0;
+    for (const slot of SLOTS) {
+      const it = this.equipped[slot];
+      if (it) {
+        pSum += itemPower(it);
+        pCount++;
+      }
+    }
+    this.power = pCount ? Math.round(pSum / pCount) : 0;
     if (this._prevMaxHp === undefined) {
       this.hp = s.maxHp;
     } else if (s.maxHp !== this._prevMaxHp) {

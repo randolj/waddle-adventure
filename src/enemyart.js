@@ -190,6 +190,34 @@ export function applyEnemyArt(Enemy) {
 
       this.drawEyes(ctx, r, aspect, flash);
 
+      // Shield-shatter burst + stun stars — the shielder's exposed window.
+      if (this.shieldBreakFx > 0) {
+        const f = 1 - this.shieldBreakFx / 0.4;
+        ctx.strokeStyle = `rgba(200,220,255,${1 - f})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * (1 + f * 1.6), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (this.stunTimer > 0) {
+        ctx.strokeStyle = "#ffe27a";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        for (let i = 0; i < 3; i++) {
+          const a = this.wobble * 2 + (i / 3) * Math.PI * 2;
+          const sx = Math.cos(a) * r * 0.6;
+          const sy = -r * 1.55 + Math.sin(a) * r * 0.18;
+          for (let k = 0; k < 4; k++) {
+            const ka = (k * Math.PI) / 4;
+            ctx.beginPath();
+            ctx.moveTo(sx - Math.cos(ka) * r * 0.16, sy - Math.sin(ka) * r * 0.16);
+            ctx.lineTo(sx + Math.cos(ka) * r * 0.16, sy + Math.sin(ka) * r * 0.16);
+            ctx.stroke();
+          }
+        }
+        ctx.lineCap = "butt";
+      }
+
       // Heal beam to the ally being mended (tracks the live ally).
       if (this.healBeam && !this.healBeam.target.dead) {
         const bx = this.healBeam.target.x - this.x;
@@ -318,8 +346,11 @@ export function applyEnemyArt(Enemy) {
         case "shield": {
           ctx.save();
           ctx.rotate(this.facing);
+          const frac = this.shieldMax ? this.shieldHits / this.shieldMax : 1;
           const lit = this.blockFlash > 0;
-          ctx.strokeStyle = lit ? "#ffffff" : "#aeb8c6";
+          // Reddens as it weakens — telegraphs the impending shatter.
+          const guard = frac > 0.6 ? "#aeb8c6" : frac > 0.3 ? "#e0b060" : "#e87050";
+          ctx.strokeStyle = lit ? "#ffffff" : guard;
           ctx.lineWidth = lit ? 7 : 5;
           ctx.beginPath();
           ctx.arc(r * 0.55, 0, r * 1.05, -this.shieldArc, this.shieldArc);

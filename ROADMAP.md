@@ -31,7 +31,7 @@ _(nothing yet — pull a card from Up Next)_
 - [ ] **Status-effect system** · `M` · systems — generalize `chill` into burn / poison / freeze / stun (DoT + slow + stun). Foundational: deepens weapons, enemies, and boons at once.
 - [ ] **Elite / affixed enemies** · `M` · enemies — roll modifiers (fast, explosive, shielded, vampiric, frozen-aura) onto existing archetypes for better loot. Biggest variety-per-effort win.
 - [ ] **Mid-dive boons / altars** · `L` · systems ⭐ — altars that grant run-modifying boons ("dash-strike chains lightning", "crits explode", "every 5th hit freezes"). The keystone for replayability; ties weapons + enemies + dungeons together. (Was #4 on the scaling list.)
-- [ ] **Dungeon room types** · `M` · dungeons — shrine/altar (risk-reward), mid-dive shop, trap rooms, wave/challenge rooms, mini-boss rooms.
+- [ ] **More dungeon room types** · `M` · dungeons — *(treasure-chest + healing-fountain rooms shipped — see Done)* still to add: shrine/altar (risk-reward), mid-dive shop, trap rooms, wave/challenge rooms, mini-boss rooms.
 
 ---
 
@@ -66,6 +66,8 @@ _(nothing yet — pull a card from Up Next)_
 
 ## ✅ Done
 
+- [x] **Playtester-feedback pass** — three batches from real feedback. **Inventory/loot UX:** auto-grouped inventory (weapons by type → armor → cloak → trinket, best-power first), hover **compare-vs-equipped** deltas (⚡ + per-stat ▲/▼), and prominent **floating name+power labels** on dropped gear. **Combat:** bomber blasts now damage (and chain) enemies; the **shielder shatters** after 5 frontal hits → stun + full-damage window (clear counterplay). **Dungeon content:** interactable **treasure chest** (E to open), a **healing-fountain room** (depth≥2, E for a full heal, one use), and **collidable biome props** (rocks/crystals/pillars) + vignette/floor-detail so rooms read as places, not boxes.
+- [x] **Item Power + Power Level** — every item has a gear-score (`power`, from drop depth/tier + rarity/quality, via `itemPower`); the player's Power Level = equipped average, shown in the HUD + inventory + on every item + the entrance "recommended power". The looter-shooter chase spine (step 1 of the Destiny pivot).
 - [x] **Premise + win condition** — the campaign now has a destination: descend to **Depth 10** and slay a unique final boss, **The Heart of Winter** (a beefed caster spawned in place of the biome boss). Felling it triggers a **victory screen**, banks a big shard reward, and sets an account-wide **Champion** flag (persisted). Premise is surfaced via an intro banner + a persistent HUD goal tracker (`GOAL · reach Depth 10 / ✦ CHAMPION`); deepest depth is tracked account-wide. Endless play continues past the win. (`FINAL_DEPTH` in dungeon.js; `won`/`deepest`/`hasWon`/`markWon`/`noteDepth` in meta.js; `victory`/`finishVictory`/`drawVictory` in main+hud.)
 - [x] **New enemy behaviors + visual variety** — six AI archetypes (charger telegraph-lunge, bomber rush+explode, summoner, splitter, front-blocking shielder, ally-mending healer), seeded across biome pools. `takeHit` returns damage-dealt (shielder block), enemies queue children via `this.spawns`/`flushEnemySpawns`, bombers burst in `onEnemyDeath`. Rendering split out into `enemyart.js`; one spiky-blob silhouette tuned per type (`aspect`/spikes/legs/eyes/`feature` + behavior tells) so archetypes read distinctly.
 - [x] **Procedural item rolls + affixes** — per-item quality (80–130%) + 0–3 rarity-scaled affixes; crit / lifesteal / damage-reduction stats.

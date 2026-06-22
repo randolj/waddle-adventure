@@ -112,10 +112,15 @@ export class Enemy {
     this.healCd = t.healCd || 2.4;
     this.healT = Math.random() * (t.healCd || 2.4);
     this.healBeam = null;
-    // Shielder.
+    // Shielder. The shield blocks frontal hits but shatters after `shieldMax`
+    // of them, leaving the enemy stunned + exposed (its weakness).
     this.shieldArc = t.shieldArc || 0;
     this.turnRate = t.turnRate || 2.4;
     this.blockFlash = 0;
+    this.shieldMax = t.shieldMax || 5;
+    this.shieldHits = this.shieldMax;
+    this.stunTimer = 0;
+    this.shieldBreakFx = 0;
 
     // Boss.
     this.bossKind = "charger";
@@ -166,6 +171,13 @@ export class Enemy {
         dealt = Math.max(1, Math.round(damage * 0.12));
         kb = knockback * 0.25;
         this.blockFlash = 0.16;
+        this.shieldHits -= 1;
+        if (this.shieldHits <= 0) {
+          // Shield shatters: drop the guard, stun, and leave it wide open.
+          this.shieldArc = 0;
+          this.stunTimer = 1.8;
+          this.shieldBreakFx = 0.4;
+        }
       }
     }
     this.hp -= dealt;
@@ -195,8 +207,13 @@ export class Enemy {
     if (this.contactTimer > 0) this.contactTimer -= dt;
     if (this.chillTimer > 0) this.chillTimer -= dt;
     if (this.blockFlash > 0) this.blockFlash -= dt;
+    if (this.stunTimer > 0) this.stunTimer -= dt;
+    if (this.shieldBreakFx > 0) this.shieldBreakFx -= dt;
+    const stunned = this.stunTimer > 0;
 
-    if (this.isBoss) this.updateBoss(dt, player, projectiles);
+    if (stunned) {
+      // Dazed (shield just shattered) — no AI, no attack; just coast on knockback.
+    } else if (this.isBoss) this.updateBoss(dt, player, projectiles);
     else if (this.charger) this.updateCharger(dt, player);
     else if (this.bomber) this.updateBomber(dt, player);
     else if (this.summoner) this.updateSummoner(dt, player, enemies);
@@ -233,7 +250,7 @@ export class Enemy {
       this.chargeTimer = 0.5;
     }
 
-    this.tryContact(player);
+    if (!stunned) this.tryContact(player);
   }
 
   updateChase(dt, player) {

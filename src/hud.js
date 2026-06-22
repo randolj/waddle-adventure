@@ -7,8 +7,9 @@
 import { roundRect } from "./utils.js";
 import { BIOMES } from "./biomes.js";
 import { depthColor, dungeonConfig, FINAL_DEPTH } from "./dungeon.js";
-import { WEAPON_TYPE_NAMES, RARITIES } from "./items.js";
+import { WEAPON_TYPE_NAMES, RARITIES, RARITY_ORDER, recommendedPower, itemPower } from "./items.js";
 import { getShards, shardsForRun, hasWon, getDeepest } from "./meta.js";
+import { drawItemIcon, slotTint, slotTag, withAlpha, clipText } from "./inventory.js";
 
 const CLASS_HUD_COLOR = { drifter: "#5be3a0", warden: "#e0a64b", auralist: "#7fb0ff" };
 
@@ -199,13 +200,28 @@ export function drawPickups(view) {
       ctx.arc(-2, -2, 2.4, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      const col = RARITIES[p.item.rarity].color;
-      ctx.globalAlpha = 0.35;
+      const it = p.item;
+      const col = RARITIES[it.rarity].color;
+      const rIdx = RARITY_ORDER.indexOf(it.rarity);
+      // Glow.
+      ctx.globalAlpha = 0.32;
       ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(0, 0, 14, 0, Math.PI * 2);
+      ctx.arc(0, 0, 17, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
+      // Pulsing ring for rare+ so good drops shout.
+      if (rIdx >= 2) {
+        const pulse = 0.5 + 0.5 * Math.sin(p.t * 4);
+        ctx.globalAlpha = 0.4 + 0.4 * pulse;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 17 + pulse * 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      // Diamond.
       ctx.fillStyle = col;
       ctx.strokeStyle = "#14110e";
       ctx.lineWidth = 2;
@@ -217,6 +233,32 @@ export function drawPickups(view) {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      // Floating name + power label so dropped gear can't be missed.
+      const nm = it.name;
+      const pw = "⚡" + itemPower(it);
+      ctx.font = "700 11px -apple-system, sans-serif";
+      const nmW = ctx.measureText(nm).width;
+      ctx.font = "700 10px -apple-system, sans-serif";
+      const pwW = ctx.measureText(pw).width;
+      const totalW = nmW + 8 + pwW;
+      const ly = -24;
+      ctx.fillStyle = "rgba(8,10,18,0.8)";
+      roundRect(ctx, -totalW / 2 - 8, ly - 10, totalW + 16, 20, 6);
+      ctx.fill();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      roundRect(ctx, -totalW / 2 - 8, ly - 10, totalW + 16, 20, 6);
+      ctx.stroke();
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.fillStyle = col;
+      ctx.fillText(nm, -totalW / 2, ly);
+      ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.fillStyle = "#ffd27a";
+      ctx.fillText(pw, -totalW / 2 + nmW + 8, ly);
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left";
     }
     ctx.restore();
   }
@@ -238,14 +280,16 @@ export function drawPrompt(view, text, color) {
 }
 
 export function drawEntranceTooltip(view, dg) {
-  const { ctx, w, h, input } = view;
+  const { ctx, w, h, input, player } = view;
   const depth = dg.tierIndex + 1;
   const cfg = dungeonConfig(depth);
   const biome = BIOMES[dg.biome];
   const col = depthColor(depth);
+  const recP = recommendedPower(depth);
   const lines = [
     [`${biome.name}`, col, "700 15px"],
     [`Depth ${depth}  ·  ${cfg.roomCount} rooms + boss (${biome.boss.name})`, "#cdd5e2", "500 12px"],
+    [`Power ~${recP}  ·  you ${player.power}`, player.power >= recP ? "#9be29a" : "#ff9a9a", "700 12px"],
     [`Enemies:  HP ×${cfg.hpMult.toFixed(1)}   DMG ×${cfg.dmgMult.toFixed(1)}`, "#ff9a9a", "600 12px"],
     [`Reward:  ${cfg.reward.coins[0]}–${cfg.reward.coins[1]} coins, ${cfg.reward.items} item(s)${cfg.reward.relic ? " + Relic" : ""}`, "#9be29a", "600 12px"],
     [`Descend in-run for deeper levels →`, "#8fb7ff", "500 11px"],
@@ -338,6 +382,7 @@ export function drawRoomMap(view) {
     if (r === dungeon.currentRoom) col = "#ffd166";
     else if (r.type === "boss") col = r.cleared ? "#7a5a5a" : "#e24b4a";
     else if (r.type === "treasure") col = "#e0b84a";
+    else if (r.type === "heal") col = "#6fdc8c";
     else if (r.type === "start") col = "#7fe3ff";
     else col = r.cleared ? "#5db85d" : "#6a7080";
     ctx.fillStyle = col;
@@ -349,7 +394,7 @@ export function drawRoomMap(view) {
       roundRect(ctx, cx, cy, cell, cell, 3);
       ctx.stroke();
     }
-    const mark = r.type === "boss" ? "B" : r.type === "treasure" ? "$" : "";
+    const mark = r.type === "boss" ? "B" : r.type === "treasure" ? "$" : r.type === "heal" ? "+" : "";
     if (mark) {
       ctx.fillStyle = "#1a1620";
       ctx.font = "700 9px -apple-system, sans-serif";
@@ -379,6 +424,85 @@ export function drawToasts(view) {
     ctx.fillText(t.text, w / 2, y + 1);
     ctx.globalAlpha = 1;
   });
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+// Gear-acquired cards — a richer "you got loot" popup, visually distinct from coin toasts.
+// Stacks bottom-center (a loot feed), each card showing the item icon, type, name + rarity, and power.
+export function drawItemPickups(view) {
+  const { ctx, w, h, itemPickups } = view;
+  if (!itemPickups || !itemPickups.length) return;
+  const LIFE = 3.4;
+  const cw = 290;
+  const ch = 56;
+  const baseY = h - 150; // sits above the controls hint, clear of toasts/combo up top
+  const shown = itemPickups.slice(-4); // cap the stack
+  shown.forEach((entry, idx) => {
+    const item = entry.item;
+    const rc = (RARITIES[item.rarity] && RARITIES[item.rarity].color) || "#cfd6e6";
+    const rIdx = RARITY_ORDER.indexOf(item.rarity);
+    const life = entry.t;
+    const fadeIn = Math.min(1, (LIFE - life) / 0.16);
+    const fadeOut = Math.min(1, life / 0.45);
+    const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+    if (alpha <= 0) return;
+    const stack = shown.length - 1 - idx; // 0 = newest (bottom)
+    const cy = baseY - stack * (ch + 9) - (1 - fadeIn) * 12; // newest rises into place
+    const x0 = w / 2 - cw / 2;
+    const y0 = cy - ch / 2;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // Rarity glow for rare+ — makes a good drop pop.
+    if (rIdx >= 2) {
+      ctx.shadowColor = rc;
+      ctx.shadowBlur = 16;
+    }
+    ctx.fillStyle = "rgba(12,15,24,0.92)";
+    roundRect(ctx, x0, y0, cw, ch, 11);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Rarity-tinted border + a thicker accent stripe down the left edge.
+    ctx.strokeStyle = rc;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x0 + 0.75, y0 + 0.75, cw - 1.5, ch - 1.5, 10);
+    ctx.stroke();
+    ctx.fillStyle = rc;
+    roundRect(ctx, x0 + 4, y0 + 8, 4, ch - 16, 2);
+    ctx.fill();
+    // Slot-tinted icon disc + the real inventory icon (consistent with the bag).
+    const ix = x0 + 34;
+    const iy = cy;
+    const tint = slotTint(item);
+    ctx.fillStyle = withAlpha(tint, 0.22);
+    ctx.beginPath();
+    ctx.arc(ix, iy, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = withAlpha(tint, 0.6);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    drawItemIcon(ctx, ix, iy, 15, item);
+    // Text column.
+    const tx = x0 + 62;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#93a0b6";
+    ctx.font = "700 9px -apple-system, sans-serif";
+    ctx.fillText("✦ ACQUIRED · " + slotTag(item), tx, cy - 9);
+    ctx.fillStyle = rc;
+    ctx.font = "800 16px -apple-system, sans-serif";
+    ctx.fillText(clipText(ctx, item.name, cw - 62 - 56), tx, cy + 9);
+    ctx.fillStyle = "#aeb8cc";
+    ctx.font = "700 10px -apple-system, sans-serif";
+    ctx.fillText((RARITIES[item.rarity] && RARITIES[item.rarity].name) || "", tx, cy + 22);
+    // Power, right-aligned in amber to echo the HUD power readout.
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#ffd27a";
+    ctx.font = "800 14px -apple-system, sans-serif";
+    ctx.fillText("⚡" + itemPower(item), x0 + cw - 16, cy + 6);
+    ctx.restore();
+  });
+  ctx.globalAlpha = 1;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 }
@@ -502,10 +626,14 @@ export function drawHud(view) {
   ctx.fillText(`◉ ${player.coins}`, w - 20, 52);
   ctx.fillStyle = "#5aa8cc";
   ctx.fillText(`✦ ${getShards()}`, w - 20, 74);
+  // Power Level — the looter-shooter chase number.
+  ctx.fillStyle = "#ffd27a";
+  ctx.font = "800 18px -apple-system, sans-serif";
+  ctx.fillText(`⚡ ${player.power}`, w - 20, 100);
   if (player.godMode) {
     ctx.fillStyle = "#7CFC9B";
     ctx.font = "700 12px -apple-system, sans-serif";
-    ctx.fillText("GOD", w - 20, 92);
+    ctx.fillText("GOD", w - 20, 120);
   }
   ctx.textAlign = "left";
 }

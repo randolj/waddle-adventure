@@ -1,7 +1,7 @@
 // Immediate-mode inventory + shop overlay. Drawing and click handling happen
 // together in render(); the caller pauses the game while this is open.
 
-import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, sellValue } from "./items.js";
+import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, sellValue, itemPower } from "./items.js";
 import { roundRect as rr } from "./utils.js";
 
 const MOD_LABEL = {
@@ -30,6 +30,9 @@ const MOD_LABEL = {
 
 // Mods stored as 0..1 fractions are shown as percentages.
 const PCT_MODS = new Set(["critChance", "lifesteal", "damageReduction"]);
+// Stats where a LOWER value is the upgrade (faster attacks, shorter dash cooldown,
+// less mace wind-up).
+const LOWER_BETTER = new Set(["attackCooldown", "dashRest", "windup"]);
 
 function trim(v) {
   return Math.round(v * 100) / 100;
@@ -38,19 +41,22 @@ function trim(v) {
 // Per-slot accent — the icon-disc tint + the row's type tag — so item categories
 // (weapon vs armor vs cloak vs trinket vs relic) read apart at a glance.
 const SLOT_TINT = { weapon: "#e8b35a", armor: "#8fb7ff", cloak: "#c4a6ff", trinket: "#7fe0c0", relic: "#ef9f27" };
-function slotTint(item) {
+// Inventory grouping: weapons (by type) → armor → cloak → trinket → relic.
+const SLOT_ORDER = { weapon: 0, armor: 1, cloak: 2, trinket: 3, relic: 4 };
+const WTYPE_ORDER = { sword: 0, mace: 1, dagger: 2, bow: 3, staff: 4 };
+export function slotTint(item) {
   return SLOT_TINT[item.slot] || "#9aa6b1";
 }
-function slotTag(item) {
+export function slotTag(item) {
   return item.slot === "weapon" ? (WEAPON_TYPE_NAMES[item.weaponType] || "Weapon").toUpperCase() : (SLOT_NAMES[item.slot] || item.slot).toUpperCase();
 }
-function withAlpha(hex, a) {
+export function withAlpha(hex, a) {
   const h = hex.replace("#", "");
   return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
 }
 
 // Truncate text with an ellipsis to fit maxW (uses the current ctx.font).
-function clipText(ctx, str, maxW) {
+export function clipText(ctx, str, maxW) {
   if (ctx.measureText(str).width <= maxW) return str;
   let s = str;
   while (s.length && ctx.measureText(s + "…").width > maxW) s = s.slice(0, -1);
@@ -75,7 +81,7 @@ function modsSummary(item) {
 
 // Icon dispatch — each item's silhouette reflects its kind: a weapon's archetype
 // (sword/mace/dagger/bow/staff), armor, cloak, or trinket.
-function drawItemIcon(ctx, cx, cy, s, item) {
+export function drawItemIcon(ctx, cx, cy, s, item) {
   const col = item.color || "#aaa";
   ctx.save();
   ctx.translate(cx, cy);
@@ -364,6 +370,7 @@ export class InventoryUI {
     const s = player.stats;
     const dashTxt = s.dashEnabled ? `${Math.round(s.dashSpeed * s.dashTime)}px` : "—";
     const stats = [
+      ["⚡ Power", player.power],
       ["Damage", s.meleeDamage],
       ["Crit", `${Math.round((s.critChance || 0) * 100)}%`],
       ["Range", s.attackRange],
@@ -378,14 +385,15 @@ export class InventoryUI {
     const boxW = (pw - 44) / stats.length;
     stats.forEach((st, i) => {
       const bx = px + 22 + i * boxW;
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      const isPwr = st[0] === "⚡ Power";
+      ctx.fillStyle = isPwr ? "rgba(255,210,122,0.13)" : "rgba(255,255,255,0.05)";
       rr(ctx, bx, stripY, boxW - 8, 38, 6);
       ctx.fill();
       ctx.textAlign = "left";
-      ctx.fillStyle = "#8b97ab";
+      ctx.fillStyle = isPwr ? "#d8b06a" : "#8b97ab";
       ctx.font = "600 10px -apple-system, sans-serif";
       ctx.fillText(st[0].toUpperCase(), bx + 10, stripY + 15);
-      ctx.fillStyle = "#e9eef6";
+      ctx.fillStyle = isPwr ? "#ffd27a" : "#e9eef6";
       ctx.font = "700 15px -apple-system, sans-serif";
       ctx.fillText(String(st[1]), bx + 10, stripY + 31);
     });
@@ -463,7 +471,21 @@ export class InventoryUI {
     }
 
     const view = !isShop ? "inv" : this.shopTab; // "inv" | "buy" | "sell"
-    const rows = view === "buy" ? this.shop : player.inventory.map((it) => ({ item: it }));
+    const rows = view === "buy" ? this.shop.slice() : player.inventory.map((it) => ({ item: it }));
+    // Group by slot (weapons by type), best power first within each group.
+    rows.sort((a, b) => {
+      const A = a.item;
+      const B = b.item;
+      const sa = SLOT_ORDER[A.slot] ?? 9;
+      const sb = SLOT_ORDER[B.slot] ?? 9;
+      if (sa !== sb) return sa - sb;
+      if (A.slot === "weapon") {
+        const wa = WTYPE_ORDER[A.weaponType] ?? 9;
+        const wb = WTYPE_ORDER[B.weaponType] ?? 9;
+        if (wa !== wb) return wa - wb;
+      }
+      return itemPower(B) - itemPower(A);
+    });
     const listH = contentY + contentH - listTop;
     const rowH = 40;
     const gap = 6;
@@ -495,6 +517,12 @@ export class InventoryUI {
       const locked = item.classes && !item.classes.includes(player.class); // off-class gear you can't equip
       const rlx = listX + listW - 14;
 
+      // Thin divider between item-type groups (weapons | armor | cloak | ...).
+      if (i > 0 && rows[i - 1].item.slot !== item.slot) {
+        ctx.fillStyle = "rgba(255,255,255,0.09)";
+        ctx.fillRect(listX + 6, ry - gap / 2, listW - 12, 1);
+      }
+
       ctx.fillStyle = sold ? "rgba(255,255,255,0.02)" : hovered ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)";
       rr(ctx, listX, ry, listW, rowH, 8);
       ctx.fill();
@@ -522,15 +550,19 @@ export class InventoryUI {
       ctx.fillStyle = sold ? "#5d6678" : RARITIES[item.rarity].color;
       ctx.font = "600 14px -apple-system, sans-serif";
       ctx.fillText(clipText(ctx, item.name, textMaxW), listX + 46, ry + 16);
-      // Line 2: slot-type tag (slot color) + the mod summary.
+      // Line 2: slot-type tag + item power (⚡) + the mod summary.
       const tag = slotTag(item);
       ctx.font = "700 10px -apple-system, sans-serif";
       ctx.fillStyle = tint;
       ctx.fillText(tag, listX + 46, ry + 31);
-      const tagW = ctx.measureText(tag).width;
+      let lx2 = listX + 46 + ctx.measureText(tag).width + 8;
+      const pwTxt = "⚡" + itemPower(item);
+      ctx.fillStyle = "#d8b06a";
+      ctx.fillText(pwTxt, lx2, ry + 31);
+      lx2 += ctx.measureText(pwTxt).width + 8;
       ctx.fillStyle = "#8b97ab";
       ctx.font = "500 11px -apple-system, sans-serif";
-      ctx.fillText(clipText(ctx, modsSummary(item), textMaxW - tagW - 12), listX + 46 + tagW + 10, ry + 31);
+      ctx.fillText(clipText(ctx, modsSummary(item), Math.max(8, listX + 46 + textMaxW - lx2)), lx2, ry + 31);
       ctx.globalAlpha = 1;
 
       ctx.textAlign = "right";
@@ -615,8 +647,8 @@ export class InventoryUI {
           : "Click an item to equip/unequip · I or X to close";
     ctx.fillText(footer, px + 22, py + ph - 12);
 
-    // Tooltip for the hovered list item.
-    if (hoveredItem) this.drawTooltip(ctx, hoveredItem.item, hoveredItem.x, hoveredItem.y, w, h);
+    // Tooltip for the hovered list item (with a compare-vs-equipped block).
+    if (hoveredItem) this.drawTooltip(ctx, hoveredItem.item, hoveredItem.x, hoveredItem.y, w, h, player);
 
     // Click outside the panel closes.
     if (clicked && !hit(px, py, pw, ph)) this.close();
@@ -625,7 +657,7 @@ export class InventoryUI {
     ctx.textBaseline = "alphabetic";
   }
 
-  drawTooltip(ctx, item, mx, my, w, h) {
+  drawTooltip(ctx, item, mx, my, w, h, player) {
     const rc = RARITIES[item.rarity].color;
     const qStr = item.quality ? `  ·  Q${item.quality}%` : "";
     const typeStr = item.weaponType ? WEAPON_TYPE_NAMES[item.weaponType] + " · " : "";
@@ -633,6 +665,7 @@ export class InventoryUI {
     const lines = [
       [item.name, rc, "600 13px -apple-system, sans-serif"],
       [`${typeStr}${RARITIES[item.rarity].name} ${SLOT_NAMES[item.slot]}${qStr}`, "#8b97ab", "500 11px -apple-system, sans-serif"],
+      [`⚡ Power ${itemPower(item)}`, "#ffd27a", "700 12px -apple-system, sans-serif"],
       [item.desc, "#cdd5e2", "italic 11px -apple-system, sans-serif"],
       [modsSummary(item), "#9be29a", "600 11px -apple-system, sans-serif"],
     ];
@@ -641,6 +674,33 @@ export class InventoryUI {
     }
     for (const af of item.affixes || []) {
       lines.push([`✦ ${af.label}`, "#c8a8ff", "600 11px -apple-system, sans-serif"]);
+    }
+
+    // Compare vs the currently-equipped item of this slot (upgrade-at-a-glance).
+    const eq = player && item.slot in player.equipped ? player.equipped[item.slot] : null;
+    const canUse = !item.classes || (player && item.classes.includes(player.class));
+    if (eq && eq !== item && canUse) {
+      const dPow = itemPower(item) - itemPower(eq);
+      lines.push([`— vs ${eq.name} —`, "#7e8aa0", "600 10px -apple-system, sans-serif"]);
+      lines.push([`⚡ Power  ${dPow >= 0 ? "+" : ""}${dPow}`, dPow >= 0 ? "#7CFC9B" : "#ff7a7a", "700 12px -apple-system, sans-serif"]);
+      const keys = new Set([...Object.keys(item.mods), ...Object.keys(eq.mods)]);
+      for (const k of keys) {
+        const a = item.mods[k];
+        const b = eq.mods[k];
+        if (typeof a === "boolean" || typeof b === "boolean") {
+          const av = !!a;
+          const bv = !!b;
+          if (av === bv) continue;
+          lines.push([`${av ? "▲ +" : "▼ −"}${MOD_LABEL[k] || k}`, av ? "#7CFC9B" : "#ff7a7a", "600 11px -apple-system, sans-serif"]);
+          continue;
+        }
+        const d = (a || 0) - (b || 0);
+        if (Math.abs(d) < 0.001) continue;
+        const up = LOWER_BETTER.has(k) ? d < 0 : d > 0;
+        const label = MOD_LABEL[k] || k;
+        const txt = PCT_MODS.has(k) ? `${d > 0 ? "+" : ""}${Math.round(d * 100)}% ${label}` : `${d > 0 ? "+" : ""}${trim(d)} ${label}`;
+        lines.push([`${up ? "▲" : "▼"} ${txt}`, up ? "#7CFC9B" : "#ff7a7a", "600 11px -apple-system, sans-serif"]);
+      }
     }
 
     let tw = 0;

@@ -1,5 +1,5 @@
 import { Enemy } from "./enemy.js";
-import { dist, valueNoise } from "./utils.js";
+import { dist, valueNoise, mulberry32, roundRect } from "./utils.js";
 import { BIOMES, BIOME_IDS } from "./biomes.js";
 
 // The campaign goal: reach this depth and slay the boss waiting there (the Heart
@@ -84,6 +84,19 @@ function resolveRect(x, y, r, rc) {
   return { x: x + dx * push, y: y + dy * push };
 }
 
+// Push a circle (x,y,r) out of a circular obstacle.
+function resolveCircle(x, y, r, o) {
+  const dx = x - o.x;
+  const dy = y - o.y;
+  const d2 = dx * dx + dy * dy;
+  const rr = r + o.r;
+  if (d2 >= rr * rr) return { x, y };
+  if (d2 === 0) return { x: o.x + rr, y }; // dead-center — eject along +x
+  const d = Math.sqrt(d2);
+  const push = (rr - d) / d;
+  return { x: x + dx * push, y: y + dy * push };
+}
+
 export class Dungeon {
   constructor(depth) {
     this.depth = depth;
@@ -150,10 +163,21 @@ export class Dungeon {
     }
     if (boss !== start) boss.type = "boss";
 
-    // A dead-end combat room (one door) becomes a treasure room.
+    // A combat room becomes a treasure room — prefer a dead-end, else any combat
+    // room (so even linear dungeons get one).
     const neighbours = (r) => DIRS.reduce((n, dir) => n + (r.doors[dir.name] ? 1 : 0), 0);
-    const leaf = [...map.values()].find((r) => r.type === "combat" && neighbours(r) === 1);
-    if (leaf) leaf.type = "treasure";
+    const pickRoom = () => {
+      const combats = [...map.values()].filter((r) => r.type === "combat");
+      return combats.find((r) => neighbours(r) === 1) || combats[0] || null;
+    };
+    const treasure = pickRoom();
+    if (treasure) treasure.type = "treasure";
+
+    // A healing-fountain room (deeper dives only), preferring another dead-end.
+    if (this.depth >= 2) {
+      const heal = pickRoom();
+      if (heal) heal.type = "heal";
+    }
 
     return [...map.values()];
   }
@@ -195,10 +219,50 @@ export class Dungeon {
     vWall(0, FULL_H, 0, WALL, this.doorOpen(room, "W"));
     vWall(0, FULL_H, R, WALL, this.doorOpen(room, "E"));
     this.walls = walls;
+    this.buildObstacles(room);
+    // Precompute static floor detail (cracks + pebbles) per room so draw() replays
+    // it instead of re-seeding an RNG every frame.
+    const drng = mulberry32(this.seed + room.gx * 17 + room.gy * 31);
+    const cracks = [];
+    for (let i = 0; i < 14; i++) {
+      const fx = L + 30 + drng() * (IW - 60);
+      const fy = T + 30 + drng() * (IH - 60);
+      const len = 8 + drng() * 22;
+      const a = drng() * Math.PI;
+      cracks.push([fx, fy, fx + Math.cos(a) * len, fy + Math.sin(a) * len]);
+    }
+    const pebbles = [];
+    for (let i = 0; i < 18; i++) {
+      pebbles.push([L + 20 + drng() * (IW - 40), T + 20 + drng() * (IH - 40), 1 + drng() * 2]);
+    }
+    this.floorDetail = { cracks, pebbles };
+  }
+
+  // Collidable props for a combat room — deterministic from the room's grid
+  // coords, kept off the center + door cross so they're cover, not blockers.
+  buildObstacles(room) {
+    this.obstacles = [];
+    if (room.type !== "combat") return;
+    const rng = mulberry32(this.seed + room.gx * 131 + room.gy * 89 + 7);
+    const kinds = ["rock", "rock", "crystal", "pillar"];
+    const n = 3 + Math.floor(rng() * 3); // 3–5
+    let tries = 0;
+    while (this.obstacles.length < n && tries++ < 80) {
+      const x = L + 70 + rng() * (IW - 140);
+      const y = T + 70 + rng() * (IH - 140);
+      const orad = 20 + rng() * 16;
+      if (dist(x, y, CX, CY) < 120) continue; // clear the entry/fight center
+      // keep the doorway lanes (±DOOR_W/2) clear, accounting for the prop's radius
+      if (Math.abs(x - CX) - orad < 84 || Math.abs(y - CY) - orad < 84) continue;
+      if (this.obstacles.some((o) => dist(o.x, o.y, x, y) < o.r + orad + 26)) continue;
+      this.obstacles.push({ x, y, r: orad, kind: kinds[Math.floor(rng() * kinds.length)], jitter: rng() * 10 });
+    }
   }
 
   resolve(x, y, r) {
     for (const w of this.walls) ({ x, y } = resolveRect(x, y, r, w));
+    for (const o of this.obstacles || []) ({ x, y } = resolveCircle(x, y, r, o));
+    for (const w of this.walls) ({ x, y } = resolveRect(x, y, r, w)); // re-seat after props so nothing is pushed into a wall
     return { x, y };
   }
 
@@ -224,7 +288,7 @@ export class Dungeon {
       this.boss = e;
       return;
     }
-    if (room.type === "start" || room.type === "treasure") return;
+    if (room.type === "start" || room.type === "treasure" || room.type === "heal") return;
     const scale = { hp: cfg.hpMult, dmg: cfg.dmgMult };
     const count = cfg.enemyBase + Math.floor(Math.random() * 3);
     for (let i = 0; i < count; i++) {
@@ -236,7 +300,11 @@ export class Dungeon {
         ey = T + 70 + Math.random() * (IH - 140);
         if (dist(ex, ey, player.x, player.y) > 150) break;
       }
-      enemies.push(new Enemy(ex, ey, type, scale));
+      const en = new Enemy(ex, ey, type, scale);
+      const er = this.resolve(en.x, en.y, en.r); // start off the walls + props
+      en.x = er.x;
+      en.y = er.y;
+      enemies.push(en);
     }
   }
 
@@ -306,11 +374,43 @@ export class Dungeon {
       }
     }
     if (room.type === "boss") {
-      ctx.fillStyle = "rgba(120, 40, 40, 0.07)";
+      ctx.fillStyle = "rgba(120, 40, 40, 0.08)";
+      ctx.fillRect(L, T, IW, IH);
+    } else if (room.type === "treasure") {
+      ctx.fillStyle = "rgba(220, 184, 74, 0.07)";
+      ctx.fillRect(L, T, IW, IH);
+    } else if (room.type === "heal") {
+      ctx.fillStyle = "rgba(110, 220, 150, 0.07)";
       ctx.fillRect(L, T, IW, IH);
     } else if (room.cleared) {
       ctx.fillStyle = "rgba(120, 180, 130, 0.05)";
       ctx.fillRect(L, T, IW, IH);
+    }
+
+    // Edge vignette for depth/atmosphere (gradient geometry is constant — cache it).
+    if (!this._vignette) {
+      const vg = ctx.createRadialGradient(CX, CY, IW * 0.28, CX, CY, IW * 0.62);
+      vg.addColorStop(0, "rgba(0,0,0,0)");
+      vg.addColorStop(1, "rgba(0,0,0,0.32)");
+      this._vignette = vg;
+    }
+    ctx.fillStyle = this._vignette;
+    ctx.fillRect(L, T, IW, IH);
+
+    // Sparse floor detail (cracks + pebbles), precomputed per room in buildCurrent.
+    ctx.strokeStyle = "rgba(0,0,0,0.13)";
+    ctx.lineWidth = 1.5;
+    for (const c of this.floorDetail.cracks) {
+      ctx.beginPath();
+      ctx.moveTo(c[0], c[1]);
+      ctx.lineTo(c[2], c[3]);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.045)";
+    for (const p of this.floorDetail.pebbles) {
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], p[2], 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Walls.
@@ -360,5 +460,177 @@ export class Dungeon {
         ctx.fillRect(gx + gw / 2 - 2, gy + gh / 2, 4, 8);
       }
     }
+
+    // Interior props: cover obstacles + the room's interactable (chest / fountain).
+    for (const o of this.obstacles) this.drawObstacle(ctx, o);
+    if (room.type === "treasure") this.drawChest(ctx, CX, CY, room.looted);
+    if (room.type === "heal") this.drawFountain(ctx, CX, CY, room.drained);
+  }
+
+  drawObstacle(ctx, o) {
+    const ob = this.biome.obstacle;
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.lineJoin = "round";
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.beginPath();
+    ctx.ellipse(0, o.r * 0.75, o.r * 0.95, o.r * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#14110e";
+    if (o.kind === "crystal") {
+      ctx.fillStyle = this.biome.accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -o.r * 1.2);
+      ctx.lineTo(o.r * 0.6, -o.r * 0.1);
+      ctx.lineTo(o.r * 0.34, o.r * 0.7);
+      ctx.lineTo(-o.r * 0.34, o.r * 0.7);
+      ctx.lineTo(-o.r * 0.6, -o.r * 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.beginPath();
+      ctx.moveTo(0, -o.r * 1.2);
+      ctx.lineTo(o.r * 0.22, -o.r * 0.1);
+      ctx.lineTo(-o.r * 0.08, o.r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    } else if (o.kind === "pillar") {
+      ctx.fillStyle = ob.rock;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.rect(-o.r * 0.7, -o.r * 1.3, o.r * 1.4, o.r * 2.1);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillRect(-o.r * 0.7, -o.r * 1.3, o.r * 0.35, o.r * 2.1);
+      ctx.fillStyle = ob.ice;
+      ctx.fillRect(-o.r * 0.85, -o.r * 1.45, o.r * 1.7, o.r * 0.3);
+      ctx.strokeRect(-o.r * 0.85, -o.r * 1.45, o.r * 1.7, o.r * 0.3);
+    } else {
+      ctx.fillStyle = ob.rock;
+      ctx.lineWidth = 2.5;
+      const pts = 8;
+      ctx.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * Math.PI * 2;
+        const rad = o.r * (0.82 + Math.sin(i * 2.3 + o.jitter) * 0.16);
+        const px = Math.cos(a) * rad;
+        const py = Math.sin(a) * rad * 0.92;
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.beginPath();
+      ctx.ellipse(-o.r * 0.25, -o.r * 0.3, o.r * 0.4, o.r * 0.24, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawChest(ctx, x, y, opened) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineJoin = "round";
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(0, 20, 30, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const wood = "#7a4a28";
+    const gold = "#e0b84a";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2.5;
+    ctx.fillStyle = wood;
+    roundRect(ctx, -28, -6, 56, 28, 4);
+    ctx.fill();
+    ctx.stroke();
+    if (opened) {
+      ctx.fillStyle = wood;
+      ctx.beginPath();
+      ctx.moveTo(-28, -6);
+      ctx.lineTo(-24, -34);
+      ctx.lineTo(28, -34);
+      ctx.lineTo(28, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,226,122,0.5)";
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 22, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = wood;
+      ctx.beginPath();
+      ctx.moveTo(-28, -6);
+      ctx.quadraticCurveTo(-28, -24, 0, -24);
+      ctx.quadraticCurveTo(28, -24, 28, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = gold;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-28, -6);
+      ctx.lineTo(28, -6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -23);
+      ctx.lineTo(0, 22);
+      ctx.stroke();
+      ctx.fillStyle = gold;
+      ctx.beginPath();
+      ctx.arc(0, -2, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#14110e";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  drawFountain(ctx, x, y, drained) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineJoin = "round";
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(0, 16, 34, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#6a7080";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 32, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#4a505e";
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 24, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (!drained) {
+      ctx.fillStyle = "rgba(120, 230, 170, 0.75)";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(200,255,220,0.5)";
+      ctx.beginPath();
+      ctx.ellipse(-5, 2, 8, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(180,255,210,0.6)";
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc((i - 1) * 8, -8 - i * 3, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = "#3a4048";
+      ctx.beginPath();
+      ctx.ellipse(0, 4, 20, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }
