@@ -1,7 +1,7 @@
 // Immediate-mode inventory + shop overlay. Drawing and click handling happen
 // together in render(); the caller pauses the game while this is open.
 
-import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, sellValue, itemPower } from "./items.js";
+import { RARITIES, SLOTS, SLOT_NAMES, WEAPON_TYPE_NAMES, WEAPON_TRAITS, traitForItem, sellValue, itemPower } from "./items.js";
 import { roundRect as rr, fitScale } from "./utils.js";
 
 const MOD_LABEL = {
@@ -675,6 +675,12 @@ export class InventoryUI {
       [item.desc, "#cdd5e2", "italic 11px -apple-system, sans-serif"],
       [modsSummary(item), "#9be29a", "600 11px -apple-system, sans-serif"],
     ];
+    // Weapon identity — the special trait, called out so it reads as more than stats.
+    const trait = traitForItem(item);
+    if (trait && WEAPON_TRAITS[trait]) {
+      const t = WEAPON_TRAITS[trait];
+      lines.push([`✦ ${t.name.toUpperCase()} — ${t.desc}`, "#ffd27a", "700 11px -apple-system, sans-serif"]);
+    }
     if (item.classes) {
       lines.push([`${item.classes.map((c) => c[0].toUpperCase() + c.slice(1)).join(" / ")} only`, "#d39", "600 11px -apple-system, sans-serif"]);
     }

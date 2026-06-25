@@ -173,8 +173,9 @@ export class Dungeon {
     const treasure = pickRoom();
     if (treasure) treasure.type = "treasure";
 
-    // A healing-fountain room (deeper dives only), preferring another dead-end.
-    if (this.depth >= 2) {
+    // A healing-fountain room — only every 5th depth (5, 10, …), preferring a dead-end,
+    // so healing is a meaningful milestone rather than a guarantee every dive.
+    if (this.depth % 5 === 0) {
       const heal = pickRoom();
       if (heal) heal.type = "heal";
     }

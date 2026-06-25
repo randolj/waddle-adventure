@@ -42,6 +42,10 @@ export class World {
     // The Quartermaster who sells permanent shard upgrades (press E nearby).
     this.quartermaster = { x: width / 2 + 250, y: height / 2 + 30, r: 30 };
 
+    // The Mission Board (bounties) and the Forge (crafting) — press E nearby.
+    this.missionBoard = { x: width / 2 - 190, y: this.safeZone.y + 175, r: 30 };
+    this.forge = { x: width / 2, y: height / 2 + 150, r: 30 };
+
     // Dungeon entrances scattered through the wilds, one per difficulty tier.
     // Biomes are laid out as rings around the camp: an inner Tundra circle, a
     // Cavern ring around it, then the outer area sliced into angular wedges.
@@ -491,6 +495,111 @@ export class World {
     this.drawShop(ctx);
     this.drawElder(ctx);
     this.drawQuartermaster(ctx);
+    this.drawMissionBoard(ctx);
+    this.drawForge(ctx);
+  }
+
+  // Bounty board — a wooden notice board with pinned papers.
+  drawMissionBoard(ctx) {
+    const { x, y } = this.missionBoard;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineJoin = "round";
+    ctx.fillStyle = "rgba(20,24,38,0.22)";
+    ctx.beginPath();
+    ctx.ellipse(0, 24, 26, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Posts.
+    ctx.strokeStyle = "#5c3517";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(-20, 24);
+    ctx.lineTo(-20, -6);
+    ctx.moveTo(20, 24);
+    ctx.lineTo(20, -6);
+    ctx.stroke();
+    // Board.
+    ctx.fillStyle = "#7a5230";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.fillRect(-28, -28, 56, 26);
+    ctx.strokeRect(-28, -28, 56, 26);
+    // Pinned papers.
+    for (const [px, rot, col] of [[-15, -0.12, "#f3eede"], [4, 0.08, "#fff7e6"], [16, -0.05, "#eef0d8"]]) {
+      ctx.save();
+      ctx.translate(px, -15);
+      ctx.rotate(rot);
+      ctx.fillStyle = col;
+      ctx.fillRect(-6, -7, 12, 15);
+      ctx.fillStyle = "#c33";
+      ctx.beginPath();
+      ctx.arc(0, -6, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = "#ffd166";
+    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("BOUNTIES", 0, -38);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  // Forge — an anvil with a glowing frost-core.
+  drawForge(ctx) {
+    const { x, y } = this.forge;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineJoin = "round";
+    ctx.fillStyle = "rgba(20,24,38,0.24)";
+    ctx.beginPath();
+    ctx.ellipse(0, 20, 26, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Anvil.
+    ctx.fillStyle = "#3a4250";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-22, -2);
+    ctx.lineTo(22, -2);
+    ctx.lineTo(14, 4);
+    ctx.lineTo(8, 4);
+    ctx.lineTo(8, 16);
+    ctx.lineTo(-8, 16);
+    ctx.lineTo(-8, 4);
+    ctx.lineTo(-14, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Horn.
+    ctx.beginPath();
+    ctx.moveTo(-22, -2);
+    ctx.lineTo(-32, -4);
+    ctx.lineTo(-22, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Glowing core resting on top.
+    ctx.shadowColor = "#9fd8ff";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "#bfe8ff";
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+      const rr = i % 2 ? 9 : 5;
+      const px = Math.cos(a) * rr;
+      const py = -10 + Math.sin(a) * rr;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#bfe8ff";
+    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("FORGE", 0, -28);
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   drawQuartermaster(ctx) {

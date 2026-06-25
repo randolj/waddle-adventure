@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Waddle's Quest — Press Kit / Cover Maker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0b1020;
+    color: #cdd7ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    gap: 18px;
+  }
+  h1 { font-size: 18px; color: #eef7ff; font-weight: 800; }
+  .sub { font-size: 13px; color: #8fb6d6; margin-top: -10px; text-align: center; max-width: 640px; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 14px 18px;
+  }
+  label { font-size: 12px; color: #9fb0c8; display: flex; flex-direction: column; gap: 4px; }
+  input, select {
+    background: #15294a; color: #eef7ff; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 7px; padding: 7px 9px; font-size: 13px; width: 110px;
+  }
+  select { width: 220px; }
+  button {
+    background: #2f8f5a; color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  button.secondary { background: rgba(255,255,255,0.1); }
+  button:hover { filter: brightness(1.1); }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .frame {
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #000;
+    max-width: 92vw; max-height: 62vh;
+  }
+  canvas { display: block; max-width: 92vw; max-height: 62vh; }
+  .meta { font-size: 12px; color: #7e8aa0; }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; justify-content: center; }
+</style>
+</head>
+<body>
+  <h1>Waddle's Quest — Cover Maker</h1>
+  <p class="sub">Type the <b>exact</b> width &amp; height CrazyGames asks for, then Download PNG. The art reflows to fit any size/aspect. (Use it for the cover/thumbnail; for in-game screenshots, capture the real game and resize to the same exact size.)</p>
+
+  <div class="controls">
+    <label>Preset
+      <select id="preset">
+        <option value="1920x1080">16:9 — 1920 × 1080</option>
+        <option value="1280x720">16:9 — 1280 × 720</option>
+        <option value="800x450">16:9 — 800 × 450</option>
+        <option value="512x384">4:3 — 512 × 384</option>
+        <option value="512x512">Square — 512 × 512</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </label>
+    <label>Width<input id="w" type="number" value="1920" min="16" max="8000" /></label>
+    <label>Height<input id="h" type="number" value="1080" min="16" max="8000" /></label>
+    <label>Title<input id="title" type="text" value="Waddle's Quest" style="width:170px" /></label>
+    <div class="row">
+      <button id="download">⬇ Download PNG</button>
+      <button id="variant" class="secondary">Shuffle look</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="frame"><canvas id="cv"></canvas></div>
+    <div class="meta" id="meta"></div>
+  </div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let seed = 3;
+
+function rng(s) { let x = s * 1234567; return () => { x = (x * 16807) % 2147483647; return (x % 1000) / 1000; }; }
+
+// ---- Penguin hero (adapted from the in-game menu art) ----
+function penguin(c, x, y, s) {
+  c.save(); c.translate(x, y); c.lineJoin = 'round'; c.strokeStyle = '#14110e';
+  // feet
+  c.fillStyle = '#d9821c'; c.lineWidth = s * 0.05;
+  for (const fx of [-s * 0.42, s * 0.42]) { c.beginPath(); c.ellipse(fx, s * 1.02, s * 0.34, s * 0.18, 0, 0, Math.PI * 2); c.fill(); c.stroke(); }
+  // body
+  c.fillStyle = '#2f5d4a'; c.lineWidth = s * 0.07;
+  c.beginPath(); c.ellipse(0, 0, s * 0.78, s, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+  // belly
+  c.fillStyle = '#dfeee6'; c.beginPath(); c.ellipse(0, s * 0.22, s * 0.46, s * 0.62, 0, 0, Math.PI * 2); c.fill();
+  // scarf accent
+  c.strokeStyle = '#7fae8a'; c.lineWidth = s * 0.14;
+  c.beginPath(); c.moveTo(-s * 0.4, -s * 0.4); c.lineTo(s * 0.3, s * 0.22); c.moveTo(s * 0.4, -s * 0.4); c.lineTo(-s * 0.3, s * 0.22); c.stroke();
+  // eyes
+  c.fillStyle = '#f3efe6'; c.beginPath(); c.arc(-s * 0.26, -s * 0.5, s * 0.18, 0, Math.PI * 2); c.arc(s * 0.26, -s * 0.5, s * 0.18, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#14110e'; c.beginPath(); c.arc(-s * 0.22, -s * 0.5, s * 0.09, 0, Math.PI * 2); c.arc(s * 0.3, -s * 0.5, s * 0.09, 0, Math.PI * 2); c.fill();
+  // beak
+  c.fillStyle = '#d9821c'; c.strokeStyle = '#14110e'; c.lineWidth = s * 0.04;
+  c.beginPath(); c.moveTo(-s * 0.16, -s * 0.32); c.lineTo(s * 0.16, -s * 0.32); c.lineTo(0, -s * 0.14); c.closePath(); c.fill(); c.stroke();
+  // raised sword (right flipper)
+  c.save(); c.translate(s * 0.62, -s * 0.05); c.rotate(-0.7);
+  c.fillStyle = '#cfe0f0'; c.strokeStyle = '#14110e'; c.lineWidth = s * 0.045;
+  c.shadowColor = '#bfe8ff'; c.shadowBlur = s * 0.5;
+  c.fillRect(-s * 0.06, -s * 1.15, s * 0.12, s * 1.15); c.strokeRect(-s * 0.06, -s * 1.15, s * 0.12, s * 1.15);
+  c.shadowBlur = 0; c.fillStyle = '#b7913f';
+  c.fillRect(-s * 0.22, -s * 0.06, s * 0.44, s * 0.14); c.strokeRect(-s * 0.22, -s * 0.06, s * 0.44, s * 0.14);
+  c.restore();
+  c.restore();
+}
+
+function draw() {
+  const W = Math.max(16, +document.getElementById('w').value | 0);
+  const H = Math.max(16, +document.getElementById('h').value | 0);
+  const title = document.getElementById('title').value || "Waddle's Quest";
+  cv.width = W; cv.height = H;
+  const r = rng(seed);
+  const U = Math.min(W, H);
+  const wide = W / H >= 1.3;
+
+  // backdrop
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#10233f'); g.addColorStop(0.55, '#16315a'); g.addColorStop(1, '#0b1726');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // aurora ribbons
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const [col, yoff, amp] of [['rgba(75,227,176,0.18)', 0.30, 0.10], ['rgba(176,108,255,0.14)', 0.42, 0.08], ['rgba(120,200,255,0.12)', 0.22, 0.06]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = U * 0.06; ctx.beginPath();
+    for (let i = 0; i <= 40; i++) { const x = (i / 40) * W; const y = H * yoff + Math.sin(i * 0.5 + seed) * H * amp; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // snow
+  ctx.fillStyle = 'rgba(220,238,255,0.6)';
+  for (let i = 0; i < Math.round(W * H / 9000); i++) { ctx.globalAlpha = 0.2 + r() * 0.5; ctx.beginPath(); ctx.arc(r() * W, r() * H, U * (0.002 + r() * 0.004), 0, Math.PI * 2); ctx.fill(); }
+  ctx.globalAlpha = 1;
+
+  // hero placement (left column when wide, top when stacked)
+  const heroS = wide ? H * 0.24 : U * 0.24;
+  const hx = wide ? W * 0.24 : W * 0.5;
+  const hy = wide ? H * 0.52 : H * 0.38;
+  // glow halo
+  const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, heroS * 2.4);
+  halo.addColorStop(0, 'rgba(127,210,255,0.25)'); halo.addColorStop(1, 'rgba(127,210,255,0)');
+  ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+  // ground disc
+  ctx.fillStyle = 'rgba(233,243,255,0.9)'; ctx.beginPath(); ctx.ellipse(hx, hy + heroS * 1.05, heroS * 1.4, heroS * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  penguin(ctx, hx, hy, heroS);
+
+  // wordmark — auto-fit so it never overruns its column / overlaps the hero
+  const maxTitleW = wide ? W * 0.52 : W * 0.88;
+  let fs = wide ? H * 0.17 : W * 0.14;
+  ctx.font = `900 ${fs}px 'Arial Black', -apple-system, sans-serif`;
+  const measured = ctx.measureText(title).width;
+  if (measured > maxTitleW) { fs = fs * maxTitleW / measured; ctx.font = `900 ${fs}px 'Arial Black', -apple-system, sans-serif`; }
+  const tx = wide ? W * 0.70 : W * 0.5;
+  const ty = wide ? H * 0.48 : H * 0.74;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.lineWidth = fs * 0.12; ctx.strokeStyle = '#0c2236'; ctx.strokeText(title, tx, ty);
+  ctx.fillStyle = '#eef7ff'; ctx.fillText(title, tx, ty);
+  // tagline
+  ctx.font = `700 ${fs * 0.24}px -apple-system, sans-serif`;
+  ctx.fillStyle = '#8fc6ff';
+  ctx.fillText('A   P E N G U I N   R O G U E L I T E', tx, ty + fs * 0.64);
+
+  document.getElementById('meta').textContent = `${W} × ${H}px  ·  ${(W / H).toFixed(2)}:1`;
+}
+
+function syncPreset() {
+  const v = document.getElementById('preset').value;
+  if (v !== 'custom') { const [a, b] = v.split('x'); document.getElementById('w').value = a; document.getElementById('h').value = b; }
+  draw();
+}
+document.getElementById('preset').addEventListener('change', syncPreset);
+for (const id of ['w', 'h', 'title']) document.getElementById(id).addEventListener('input', () => { document.getElementById('preset').value = 'custom'; draw(); });
+document.getElementById('variant').addEventListener('click', () => { seed = (seed % 9) + 1; draw(); });
+document.getElementById('download').addEventListener('click', () => {
+  cv.toBlob((b) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = `waddles-quest-cover-${cv.width}x${cv.height}.png`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, 'image/png');
+});
+draw();
+</script>
+</body>
+</html>

@@ -3,14 +3,23 @@
 
 let actx = null;
 let master = null;
-let muted = false;
+let muted = false; // the player's own mute toggle
+let autoMuted = false; // ad break / tab hidden — independent of the player's toggle
+let portalMuted = false; // the portal player's mute setting (CrazyGames settings.muteAudio)
 const VOL = 0.32;
+
+function silent() {
+  return muted || autoMuted || portalMuted;
+}
+function applyGain() {
+  if (master) master.gain.value = silent() ? 0 : VOL;
+}
 
 function getCtx() {
   if (!actx) {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     master = actx.createGain();
-    master.gain.value = muted ? 0 : VOL;
+    master.gain.value = silent() ? 0 : VOL;
     master.connect(actx.destination);
   }
   return actx;
@@ -22,15 +31,25 @@ export function resumeAudio() {
 }
 export function toggleMute() {
   muted = !muted;
-  if (master) master.gain.value = muted ? 0 : VOL;
+  applyGain();
   return muted;
 }
 export function isMuted() {
   return muted;
 }
+// Silence audio for an ad / hidden tab without touching the player's mute preference.
+export function setAutoMute(on) {
+  autoMuted = !!on;
+  applyGain();
+}
+// Honor the portal player's mute setting (CrazyGames settings.muteAudio).
+export function setPortalMute(on) {
+  portalMuted = !!on;
+  applyGain();
+}
 
 function ready() {
-  return !muted && actx && actx.state === "running";
+  return !silent() && actx && actx.state === "running";
 }
 
 function tone(freq, dur, type = "sine", peak = 0.3, slideTo = null, delay = 0) {

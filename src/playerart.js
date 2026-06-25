@@ -648,38 +648,76 @@ export function applyPlayerArt(Player) {
     ctx.stroke();
     // Head.
     const hx = reach - grip;
-    if (rk >= 2) {
-      ctx.shadowColor = glow;
-      ctx.shadowBlur = 4 + rk * 2;
-    }
-    ctx.fillStyle = w.color;
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 2;
-    const hr = 9 + rk;
-    ctx.beginPath();
-    ctx.arc(hx, 0, hr, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    // Spikes.
-    ctx.fillStyle = "#cfd6e0";
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    if (w.id === "glacier_maul") {
+      // A jagged ice-crystal boulder — bigger, colder, heavier glow (Quake).
+      const hr = 13 + rk;
+      ctx.shadowColor = "#9fd8ff";
+      ctx.shadowBlur = 12;
+      const grad = ctx.createRadialGradient(hx - hr * 0.3, -hr * 0.3, 1, hx, 0, hr * 1.5);
+      grad.addColorStop(0, "#eaf7ff");
+      grad.addColorStop(0.6, "#bfe3ff");
+      grad.addColorStop(1, "#7fb6e6");
+      ctx.fillStyle = grad;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(hx + Math.cos(a) * hr, Math.sin(a) * hr);
-      ctx.lineTo(hx + Math.cos(a) * (hr + 5), Math.sin(a) * (hr + 5));
-      ctx.lineTo(hx + Math.cos(a + 0.3) * hr, Math.sin(a + 0.3) * hr);
+      const pts = 8;
+      for (let i = 0; i <= pts; i++) {
+        const a = (i / pts) * Math.PI * 2;
+        const rr = hr * (i % 2 ? 1.34 : 0.9);
+        const x = hx + Math.cos(a) * rr;
+        const y = Math.sin(a) * rr;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,0.65)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const a = i * 2.1;
+        ctx.beginPath();
+        ctx.moveTo(hx, 0);
+        ctx.lineTo(hx + Math.cos(a) * hr * 1.15, Math.sin(a) * hr * 1.15);
+        ctx.stroke();
+      }
+    } else {
+      if (rk >= 2) {
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 4 + rk * 2;
+      }
+      ctx.fillStyle = w.color;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
+      const hr = 9 + rk;
+      ctx.beginPath();
+      ctx.arc(hx, 0, hr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Spikes.
+      ctx.fillStyle = "#cfd6e0";
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(hx + Math.cos(a) * hr, Math.sin(a) * hr);
+        ctx.lineTo(hx + Math.cos(a) * (hr + 5), Math.sin(a) * (hr + 5));
+        ctx.lineTo(hx + Math.cos(a + 0.3) * hr, Math.sin(a + 0.3) * hr);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
     ctx.shadowBlur = 0;
     ctx.restore();
   },
 
   // Bow — a curved limb + string, held out front; nocks an arrow while firing.
+  // The legendary Aurora Longbow gets aurora-ribbon limbs + a 3-arrow nock (multishot).
   drawBow(ctx) {
     const w = this.equipped.weapon;
     const rk = rankOf(w);
     const glow = rarityGlow(w);
+    const aurora = w.id === "aurora_longbow";
     const angle = this.facing;
     const hold = this.r * 1.2;
     ctx.save();
@@ -687,17 +725,31 @@ export function applyPlayerArt(Player) {
     ctx.translate(hold, 0);
     ctx.lineJoin = "round";
     const span = 16 + rk * 2;
-    if (rk >= 2) {
-      ctx.shadowColor = glow;
-      ctx.shadowBlur = 4 + rk * 2;
+    if (aurora) {
+      // Three stacked ribbon limbs in aurora hues.
+      const cols = ["#7fe3c0", "#9fd8ff", "#c4a6ff"];
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = cols[i];
+        ctx.lineWidth = 3.4 - i * 0.7;
+        ctx.shadowColor = cols[i];
+        ctx.shadowBlur = 7;
+        ctx.beginPath();
+        ctx.arc(-4, 0, span + (i - 1) * 2.4, -Math.PI / 2.1, Math.PI / 2.1);
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    } else {
+      if (rk >= 2) {
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 4 + rk * 2;
+      }
+      ctx.strokeStyle = w.color;
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.arc(-4, 0, span, -Math.PI / 2.1, Math.PI / 2.1);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
     }
-    // Limb (a C facing forward).
-    ctx.strokeStyle = w.color;
-    ctx.lineWidth = 3.2;
-    ctx.beginPath();
-    ctx.arc(-4, 0, span, -Math.PI / 2.1, Math.PI / 2.1);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
     // String.
     const draw = this.isAttacking ? Math.max(0, 6 * (1 - this.swingProgress)) : 0;
     ctx.strokeStyle = "rgba(240,245,255,0.8)";
@@ -707,21 +759,27 @@ export function applyPlayerArt(Player) {
     ctx.lineTo(-4 - draw, 0);
     ctx.lineTo(-4 + Math.cos(Math.PI / 2.1) * span, Math.sin(Math.PI / 2.1) * span);
     ctx.stroke();
-    // Nocked arrow during the draw.
+    // Nocked arrow(s) during the draw — three fanned for the multishot bow.
     if (draw > 0) {
-      ctx.strokeStyle = "#caa14a";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-4 - draw, 0);
-      ctx.lineTo(span + 6, 0);
-      ctx.stroke();
-      ctx.fillStyle = "#e6edf6";
-      ctx.beginPath();
-      ctx.moveTo(span + 12, 0);
-      ctx.lineTo(span + 4, -3);
-      ctx.lineTo(span + 4, 3);
-      ctx.closePath();
-      ctx.fill();
+      const fan = aurora ? [-0.17, 0, 0.17] : [0];
+      for (const da of fan) {
+        ctx.save();
+        ctx.rotate(da);
+        ctx.strokeStyle = aurora ? "#9fd8ff" : "#caa14a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-4 - draw, 0);
+        ctx.lineTo(span + 6, 0);
+        ctx.stroke();
+        ctx.fillStyle = aurora ? "#dffbff" : "#e6edf6";
+        ctx.beginPath();
+        ctx.moveTo(span + 12, 0);
+        ctx.lineTo(span + 4, -3);
+        ctx.lineTo(span + 4, 3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     }
     ctx.restore();
   },
@@ -759,6 +817,28 @@ export function applyPlayerArt(Player) {
     ctx.beginPath();
     ctx.arc(ox - 1, -1, 1.6, 0, Math.PI * 2);
     ctx.fill();
+    // Aurora Scepter (Chain): jagged tendrils arc out of the orb, foe-to-foe.
+    if (w.id === "aurora_scepter") {
+      const orbR = (4 + rk) * pulse;
+      ctx.strokeStyle = "#cfe9ff";
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = "#9fd8ff";
+      ctx.shadowBlur = 6;
+      for (let i = 0; i < 3; i++) {
+        const base = this.fxTime * 2.2 + i * 2.1;
+        let a = base;
+        let r = orbR;
+        ctx.beginPath();
+        ctx.moveTo(ox + Math.cos(a) * r, Math.sin(a) * r);
+        for (let s = 0; s < 3; s++) {
+          r += 4.5;
+          a += Math.sin(base * 3 + s) * 0.7;
+          ctx.lineTo(ox + Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+    }
     ctx.restore();
   },
 
@@ -770,6 +850,9 @@ export function applyPlayerArt(Player) {
     const grip = this.r * 0.7;
     const reach = this.isAttacking ? this.atkRange : this.r * 1.9;
     const dark = BLADE_DARK[w.rarity] || BLADE_DARK.common;
+    const isReaper = w.id === "reapers_kiss"; // execute dagger — wicked dark/crimson blade
+    const isEdge = w.id === "glacier_edge"; // cleave sword — crystalline ice edge
+    const bladeGlow = isReaper ? "#ff4d5e" : glow;
 
     ctx.save();
     ctx.rotate(angle);
@@ -791,7 +874,7 @@ export function applyPlayerArt(Player) {
     ctx.fillRect(2, -gH / 2, gW, gH);
     ctx.strokeRect(2, -gH / 2, gW, gH);
     if (rk >= 3) {
-      ctx.fillStyle = glow;
+      ctx.fillStyle = bladeGlow;
       ctx.beginPath();
       ctx.arc(5, 0, 2.6, 0, Math.PI * 2);
       ctx.fill();
@@ -802,15 +885,21 @@ export function applyPlayerArt(Player) {
 
     // Blade — glowing, slimmer + longer tip for higher rarity.
     if (rk >= 2) {
-      ctx.shadowColor = glow;
+      ctx.shadowColor = bladeGlow;
       ctx.shadowBlur = 4 + rk * 3;
     }
     const tipBack = rk >= 2 ? 12 : 8;
     const halfW = rk >= 3 ? 3.4 : 4;
     const grad = ctx.createLinearGradient(6, -4, 6, 4);
-    grad.addColorStop(0, "#eef4fb");
-    grad.addColorStop(0.5, "#aeb9c8");
-    grad.addColorStop(1, dark);
+    if (isReaper) {
+      grad.addColorStop(0, "#ff8a93");
+      grad.addColorStop(0.5, "#7a2630");
+      grad.addColorStop(1, "#2a1116");
+    } else {
+      grad.addColorStop(0, "#eef4fb");
+      grad.addColorStop(0.5, "#aeb9c8");
+      grad.addColorStop(1, dark);
+    }
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(6, -halfW);
@@ -841,15 +930,34 @@ export function applyPlayerArt(Player) {
       const bx = 8 + (bladeLen - 12) * ph;
       ctx.save();
       ctx.globalAlpha = 0.85 * (1 - Math.abs(ph - 0.5) * 0.6);
-      ctx.shadowColor = glow;
+      ctx.shadowColor = bladeGlow;
       ctx.shadowBlur = 10;
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = isReaper ? "#ffd0d4" : "#ffffff";
       ctx.lineWidth = 2.4;
       ctx.beginPath();
       ctx.moveTo(bx, -halfW + 0.5);
       ctx.lineTo(bx, halfW - 0.5);
       ctx.stroke();
       ctx.restore();
+    }
+
+    // Glacier's Edge (Cleave): ice shards crystallise along the blade's edges.
+    if (isEdge) {
+      ctx.fillStyle = "#dff1ff";
+      ctx.strokeStyle = "#9fd8ff";
+      ctx.lineWidth = 0.8;
+      for (let i = 1; i <= 4; i++) {
+        const bx = 10 + (bladeLen - 16) * (i / 5);
+        const side = i % 2 ? -1 : 1;
+        const yb = side * (halfW - 0.5);
+        ctx.beginPath();
+        ctx.moveTo(bx - 3, yb);
+        ctx.lineTo(bx, yb + side * 4.5);
+        ctx.lineTo(bx + 3, yb);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
     }
 
     ctx.restore();

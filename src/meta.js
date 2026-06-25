@@ -12,6 +12,48 @@ import { bumpUid } from "./items.js";
 const KEY = "penguin_meta_v2";
 const OLD_KEY = "penguin_meta_v1";
 
+// Storage adapter: prefer the CrazyGames Data Module (syncs to the player's CrazyGames
+// account + reliable inside their cross-origin iframe, where localStorage can be
+// partitioned/cleared) when present, else plain localStorage. Reads fall back to
+// localStorage so old local saves migrate forward; writes go to BOTH so nothing is lost.
+// The Data Module only exists after SDK.init(), so the import-time load() uses
+// localStorage — main.js calls reloadFromStore() once init resolves to pick up a
+// cloud/cross-device save before the player commits to a character.
+function cgData() {
+  try {
+    return (window.CrazyGames && window.CrazyGames.SDK && window.CrazyGames.SDK.data) || null;
+  } catch {
+    return null;
+  }
+}
+const store = {
+  get(key) {
+    const cg = cgData();
+    if (cg) {
+      try {
+        const v = cg.getItem(key);
+        if (v != null) return v;
+      } catch {}
+    }
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key, val) {
+    const cg = cgData();
+    if (cg) {
+      try {
+        cg.setItem(key, val);
+      } catch {}
+    }
+    try {
+      localStorage.setItem(key, val);
+    } catch {}
+  },
+};
+
 // Permanent upgrades. `desc(level)` describes the bonus AT that level (so the
 // shop can show "next: +90 max HP"); `cost(level)` is the price to reach `level`.
 export const UPGRADES = [
@@ -31,6 +73,8 @@ function defaultState() {
     chars: { drifter: null, warden: null, auralist: null }, // null = not created yet
     won: false, // have you slain the final boss? (account-wide Champion flag)
     deepest: 0, // deepest dungeon depth ever reached (drives the goal tracker)
+    cores: 0, // Frost Cores — the crafting material (account-wide, never at risk)
+    bounties: [], // active bounty instances (topped up to 3 by ensureBounties)
   };
 }
 
@@ -51,7 +95,7 @@ function bumpFromState(s) {
 
 function load() {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY));
+    const raw = JSON.parse(store.get(KEY));
     if (raw) {
       const s = defaultState();
       s.shards = Math.max(0, raw.shards | 0);
@@ -61,11 +105,14 @@ function load() {
       for (const cls of Object.keys(s.chars)) s.chars[cls] = (raw.chars && raw.chars[cls]) || null;
       s.won = !!raw.won;
       s.deepest = Math.max(0, raw.deepest | 0);
+      s.cores = Math.max(0, raw.cores | 0);
+      s.bounties = Array.isArray(raw.bounties) ? raw.bounties : [];
+      for (const b of s.bounties) if (b && b.bid >= bidCounter) bidCounter = b.bid + 1; // never reissue a live bid
       bumpFromState(s);
       return s;
     }
     // Migrate a v1 save (shards + upgrade levels; v1 never persisted gear).
-    const old = JSON.parse(localStorage.getItem(OLD_KEY));
+    const old = JSON.parse(store.get(OLD_KEY));
     const s = defaultState();
     if (old) {
       s.shards = Math.max(0, old.shards | 0);
@@ -77,14 +124,120 @@ function load() {
   }
 }
 
+// --- Bounties (Mission Board) ---------------------------------------------
+// Each bounty type keys off an existing in-game event (main.js calls bountyProgress).
+// Templates roll into instances; the board stays topped up to 3. Plain-JSON instances
+// (no item uids) so they're immune to the bumpUid path.
+const BOUNTY_DEFS = [
+  { type: "kills", color: "#ff9f6f", goal: [20, 40], cores: [4, 7], coins: [30, 70], label: (g) => `Slay ${g} creatures` },
+  { type: "kindKills", color: "#ffb36f", goal: [8, 16], cores: [5, 8], coins: [40, 90], label: (g, t) => `Slay ${g} ${t}s` },
+  { type: "clears", color: "#7fd2ff", goal: [1, 3], cores: [6, 10], coins: [60, 140], label: (g) => `Clear ${g} dungeon${g > 1 ? "s" : ""}` },
+  { type: "depth", color: "#bfe8ff", goal: [3, 7], cores: [6, 12], coins: [60, 160], label: (g) => `Reach Depth ${g}` },
+  { type: "extract", color: "#9be8b6", goal: [1, 3], cores: [5, 9], coins: [50, 120], label: (g) => `Extract ${g} time${g > 1 ? "s" : ""}` },
+];
+const WILD_TYPES = ["runt", "gremlin", "brute", "spitter", "charger"]; // real ENEMY_TYPES ids for kindKills
+
+let bidCounter = 1;
+function rollBounty(avoidTypes = []) {
+  // Prefer a type not already on the board so the 3 slots stay varied (they
+  // share a progress counter per type, so duplicates would tick up together).
+  let pool = BOUNTY_DEFS.filter((d) => !avoidTypes.includes(d.type));
+  if (!pool.length) pool = BOUNTY_DEFS;
+  const d = pool[Math.floor(Math.random() * pool.length)];
+  const ri = (a) => a[0] + Math.floor(Math.random() * (a[1] - a[0] + 1));
+  const scale = 1 + Math.min(1, getDeepest() / 10); // bigger bounties as you go deeper
+  const goal = Math.max(1, Math.round(ri(d.goal) * scale));
+  const target = d.type === "kindKills" ? WILD_TYPES[Math.floor(Math.random() * WILD_TYPES.length)] : null;
+  return {
+    bid: bidCounter++,
+    type: d.type,
+    target,
+    color: d.color,
+    label: d.label(goal, target),
+    prog: 0,
+    goal,
+    cores: Math.round(ri(d.cores) * scale),
+    coins: Math.round(ri(d.coins) * scale),
+    done: false,
+  };
+}
+function ensureBounties(s = state) {
+  while (s.bounties.length < 3) s.bounties.push(rollBounty(s.bounties.map((b) => b.type)));
+}
+export function getBounties() {
+  return state.bounties;
+}
+// Advance any matching active bounty; returns the bounties that JUST completed (for toasts).
+export function bountyProgress(type, amount = 1, tag = null) {
+  let changed = false;
+  const completed = [];
+  for (const b of state.bounties) {
+    if (b.done || b.type !== type) continue;
+    if (b.target && b.target !== tag) continue; // kindKills filter
+    b.prog = type === "depth" ? Math.max(b.prog, amount) : Math.min(b.goal, b.prog + amount);
+    if (b.prog >= b.goal) {
+      b.done = true;
+      completed.push(b);
+    }
+    changed = true;
+  }
+  if (changed) save();
+  return completed;
+}
+// Claim a completed bounty — grants cores (account-wide, safe), returns it so main.js
+// can credit the coins to the live player + save the character at the camp safe point.
+export function claimBounty(bid) {
+  const i = state.bounties.findIndex((b) => b.bid === bid);
+  if (i === -1 || !state.bounties[i].done) return null;
+  const [b] = state.bounties.splice(i, 1);
+  addCores(b.cores); // saves
+  ensureBounties();
+  save();
+  return b;
+}
+export function rerollBounty(bid) {
+  const i = state.bounties.findIndex((b) => b.bid === bid);
+  if (i === -1 || state.bounties[i].prog > 0) return false; // only un-started bounties
+  const otherTypes = state.bounties.filter((_, j) => j !== i).map((b) => b.type);
+  state.bounties[i] = rollBounty(otherTypes);
+  save();
+  return true;
+}
+export function resetBounties() {
+  state.bounties.length = 0;
+  ensureBounties();
+  save();
+}
+
 let state = load();
+ensureBounties(); // top up to 3 on every boot (also migrates old saves with no field)
 
 export function save() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* storage unavailable — keep it in memory for the session */
-  }
+  store.set(KEY, JSON.stringify(state));
+}
+
+// --- Frost Cores (crafting material) ---
+export function getCores() {
+  return state.cores;
+}
+export function addCores(n) {
+  state.cores += Math.max(0, Math.round(n));
+  save();
+  return state.cores;
+}
+export function spendCores(n) {
+  if (state.cores < n) return false;
+  state.cores -= n;
+  save();
+  return true;
+}
+
+// Re-read from storage. Called once after the portal SDK initialises so a cloud /
+// cross-device save (CrazyGames Data Module) replaces the import-time localStorage load,
+// before the player commits to a character at the title screen.
+export function reloadFromStore() {
+  state = load();
+  ensureBounties();
 }
 
 // --- Account: shards + upgrades ---

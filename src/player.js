@@ -1,5 +1,5 @@
 import { clamp, angleDiff, roughOutline } from "./utils.js";
-import { makeItem, SLOTS, RANGED_TYPES, itemPower } from "./items.js";
+import { makeItem, SLOTS, RANGED_TYPES, itemPower, traitForItem } from "./items.js";
 import { metaBonuses, getClass } from "./meta.js";
 import { applyPlayerArt, BODY_PALETTE, GHOST_LIFE } from "./playerart.js";
 
@@ -130,6 +130,7 @@ export class Player {
     this.pendingShot = null; // bow/staff — a {angle,speed,damage,...} drained by main
     this.dashHits = null; // Warden — enemies already hit by the current contact-dash
     this.contactHits = []; // hits landed by the contact-dash this frame (main drains for FX)
+    this.traitFx = []; // weapon-trait FX descriptors (rings/arcs) — main drains each swing
     this.blinkFx = false; // Auralist — set on a frost-blink so main spawns a ring
 
     this.hurtFlash = 0;
@@ -385,6 +386,9 @@ export class Player {
   get weaponType() {
     return this.equipped.weapon ? this.equipped.weapon.weaponType || "sword" : null;
   }
+  get weaponTrait() {
+    return traitForItem(this.equipped.weapon);
+  }
   get isRanged() {
     return RANGED_TYPES.has(this.weaponType);
   }
@@ -408,6 +412,7 @@ export class Player {
       // Ranged: no melee cone — stash a shot for main.js to spawn.
       this.attackTimer = ATTACK_DURATION;
       this.attackDuration = ATTACK_DURATION;
+      const trait = this.weaponTrait;
       this.pendingShot = {
         angle: this.facing,
         speed: this.stats.projSpeed || 560,
@@ -417,6 +422,8 @@ export class Player {
         homing: wt === "staff",
         chill: wt === "staff" || this.stats.frostTouch ? 1.4 : 0,
         magic: wt === "staff",
+        spread: trait === "multishot" ? 1 : 0, // # extra shots each side (1 => 3 total)
+        chain: trait === "chain" ? 2 : 0, // # of times each shot arcs to a new foe
       };
     } else if (wt === "mace") {
       // Heavy: wide cone that lands after a windup.
@@ -632,9 +639,12 @@ export class Player {
   resolveAttack(enemies) {
     if (!this.pendingHit) return [];
     this.pendingHit = false;
+    this.traitFx.length = 0; // refilled below; main.js drains for trait visuals
+    const trait = this.weaponTrait;
     const wid = this.equipped.weapon && this.equipped.weapon.id;
     const frosty = !!this.stats.frostTouch || wid === "frostfang" || wid === "glacier_edge";
     const hits = [];
+    const struck = []; // enemies hit by the cone (cleave splashes off these)
     for (const e of enemies) {
       if (e.dead) continue;
       const d = Math.hypot(e.x - this.x, e.y - this.y);
@@ -642,12 +652,50 @@ export class Player {
       const toEnemy = Math.atan2(e.y - this.y, e.x - this.x);
       if (Math.abs(angleDiff(toEnemy, this.facing)) > this.atkArc) continue;
       const crit = Math.random() < Math.min(0.95, this.stats.critChance);
-      const dmg = crit ? Math.round(this.atkDamage * 2) : this.atkDamage;
+      let dmg = crit ? Math.round(this.atkDamage * 2) : this.atkDamage;
+      // EXECUTE (dagger trait): finish off wounded, non-boss foes.
+      const exec = trait === "execute" && !e.isBoss && e.hp <= e.maxHp * 0.35;
+      if (exec) dmg = Math.round(dmg * 2.2);
       const dealt = e.takeHit(dmg, this.facing, this.atkKnockback * (crit ? 1.4 : 1));
       if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dealt * this.stats.lifesteal);
       if (this.stats.frostTouch && !e.dead) e.applyChill(1.4);
-      hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit, killed: e.dead, dashStrike: this.isDashStrike, frost: frosty, blocked: dealt < dmg });
+      struck.push(e);
+      hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: crit || exec, killed: e.dead, dashStrike: this.isDashStrike, frost: frosty, blocked: dealt < dmg });
     }
+
+    // CLEAVE (sword trait): each struck foe splashes reduced damage to its neighbours.
+    if (trait === "cleave" && struck.length) {
+      const splashR = 78;
+      const splashDmg = Math.round(this.atkDamage * 0.5);
+      const seen = new Set(struck);
+      for (const e of enemies) {
+        if (e.dead || seen.has(e)) continue;
+        if (!struck.some((h) => Math.hypot(e.x - h.x, e.y - h.y) <= splashR)) continue;
+        seen.add(e);
+        const a = Math.atan2(e.y - this.y, e.x - this.x);
+        const dealt = e.takeHit(splashDmg, a, this.atkKnockback * 0.5);
+        hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: false, killed: e.dead, dashStrike: false, frost: frosty, blocked: dealt < splashDmg });
+      }
+      const fxx = this.x + Math.cos(this.facing) * this.atkRange * 0.6;
+      const fxy = this.y + Math.sin(this.facing) * this.atkRange * 0.6;
+      this.traitFx.push({ type: "arc", x: fxx, y: fxy, color: "#cbe0ff" });
+    }
+
+    // QUAKE (mace trait): the smash sends a 360° shockwave around you on impact.
+    if (trait === "quake") {
+      const quakeR = 140;
+      const quakeDmg = Math.round(this.atkDamage * 0.6);
+      const seen = new Set(struck);
+      for (const e of enemies) {
+        if (e.dead || seen.has(e)) continue;
+        if (Math.hypot(e.x - this.x, e.y - this.y) > quakeR + e.r) continue;
+        const a = Math.atan2(e.y - this.y, e.x - this.x);
+        const dealt = e.takeHit(quakeDmg, a, this.atkKnockback * 0.8);
+        hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: false, killed: e.dead, dashStrike: false, frost: frosty, blocked: dealt < quakeDmg });
+      }
+      this.traitFx.push({ type: "ring", x: this.x, y: this.y, r: quakeR, color: "#ffd9a8" });
+    }
+
     if (hits.length) {
       this.chainWindow = CHAIN_WINDOW; // a landed hit lets you chain-dash onward
       if (this.isDashStrike) this.iframe = Math.max(this.iframe, this.stats.dsHitIframe);

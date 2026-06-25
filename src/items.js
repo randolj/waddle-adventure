@@ -24,6 +24,17 @@ export const CLASS_NAMES = { drifter: "Drifter", warden: "Warden", auralist: "Au
 export const WEAPON_TYPE_NAMES = { sword: "Sword", mace: "Mace", dagger: "Daggers", bow: "Bow", staff: "Staff" };
 export const RANGED_TYPES = new Set(["bow", "staff"]);
 
+// Weapon IDENTITIES — a top-level `trait` on a (legendary) weapon grants a special
+// ability beyond stats, handled in player.js (resolveAttack / startAttack) + main.js
+// (projectiles). The descriptions drive the inventory tooltip. One per archetype.
+export const WEAPON_TRAITS = {
+  cleave: { name: "Cleave", desc: "Strikes splash damage to nearby foes." },
+  quake: { name: "Quake", desc: "Each smash sends a shockwave all around you." },
+  execute: { name: "Execute", desc: "Massive bonus damage to wounded foes." },
+  multishot: { name: "Multishot", desc: "Looses a spread of three shots at once." },
+  chain: { name: "Chain", desc: "Each shot arcs onward to another foe." },
+};
+
 // `color` is used for the in-game art (blade tint / scarf fabric).
 // `weaponType` (weapons) and `classes` (armor) are top-level fields, not mods.
 export const ITEM_TEMPLATES = [
@@ -32,26 +43,28 @@ export const ITEM_TEMPLATES = [
   { id: "fish_spear", name: "Fish Spear", slot: "weapon", weaponType: "sword", rarity: "uncommon", color: "#6f9a7e", desc: "Long reach, decent poke.", mods: { meleeDamage: 26, attackRange: 40, attackCooldown: -0.12, knockback: 80, attackArc: 0.04 } },
   { id: "ice_saber", name: "Ice Saber", slot: "weapon", weaponType: "sword", rarity: "rare", color: "#5f86c4", desc: "Fast, cold, and sharp.", mods: { meleeDamage: 34, attackRange: 30, attackCooldown: -0.16, knockback: 90, attackArc: 0.15 } },
   { id: "frostfang", name: "Frostfang", slot: "weapon", weaponType: "sword", rarity: "epic", color: "#8a6fce", desc: "Bites deep with frost.", mods: { meleeDamage: 46, attackRange: 34, attackCooldown: -0.18, knockback: 120, attackArc: 0.2 } },
-  { id: "glacier_edge", name: "Glacier's Edge", slot: "weapon", weaponType: "sword", rarity: "legendary", color: "#cbb24a", desc: "A sliver of the eternal glacier.", mods: { meleeDamage: 62, attackRange: 42, attackCooldown: -0.2, knockback: 160, attackArc: 0.25 } },
+  { id: "glacier_edge", name: "Glacier's Edge", slot: "weapon", weaponType: "sword", rarity: "legendary", color: "#cbb24a", trait: "cleave", desc: "A sliver of the eternal glacier — its arc shears through a crowd.", mods: { meleeDamage: 62, attackRange: 42, attackCooldown: -0.2, knockback: 160, attackArc: 0.25 } },
 
   // --- Maces (slow windup → one heavy, wide, high-knockback cone) ---
   { id: "ice_mallet", name: "Ice Mallet", slot: "weapon", weaponType: "mace", rarity: "common", color: "#7c8290", desc: "Slow, but it lands.", mods: { meleeDamage: 34, attackRange: 18, attackCooldown: 0.16, knockback: 280, attackArc: 0.55, windup: 0.16, heavy: true } },
   { id: "frostbreaker", name: "Frostbreaker", slot: "weapon", weaponType: "mace", rarity: "rare", color: "#5f7fc4", desc: "Shatters whatever it meets.", mods: { meleeDamage: 58, attackRange: 24, attackCooldown: 0.18, knockback: 360, attackArc: 0.6, windup: 0.17, heavy: true } },
-  { id: "glacier_maul", name: "Glacier Maul", slot: "weapon", weaponType: "mace", rarity: "legendary", color: "#cbb24a", desc: "An avalanche on a handle.", mods: { meleeDamage: 96, attackRange: 30, attackCooldown: 0.2, knockback: 460, attackArc: 0.7, windup: 0.18, heavy: true } },
+  { id: "glacier_maul", name: "Glacier Maul", slot: "weapon", weaponType: "mace", rarity: "legendary", color: "#cbb24a", trait: "quake", desc: "An avalanche on a handle — every blow quakes the ground.", mods: { meleeDamage: 96, attackRange: 30, attackCooldown: 0.2, knockback: 460, attackArc: 0.7, windup: 0.18, heavy: true } },
 
   // --- Daggers (fast multi-hit flurry; each sub-hit rolls crit/lifesteal) ---
   { id: "shiv", name: "Shiv", slot: "weapon", weaponType: "dagger", rarity: "common", color: "#9aa0ac", desc: "Quick little jabs.", mods: { meleeDamage: 9, attackRange: 14, attackCooldown: -0.22, knockback: 30, attackArc: 0.18, hitCount: 2, critChance: 0.05 } },
   { id: "twin_fangs", name: "Twin Fangs", slot: "weapon", weaponType: "dagger", rarity: "uncommon", color: "#6f9a7e", desc: "A blur of two edges.", mods: { meleeDamage: 12, attackRange: 16, attackCooldown: -0.24, knockback: 36, attackArc: 0.2, hitCount: 2, critChance: 0.07 } },
   { id: "frost_talons", name: "Frost Talons", slot: "weapon", weaponType: "dagger", rarity: "epic", color: "#8a6fce", desc: "Three frozen slashes a beat.", mods: { meleeDamage: 16, attackRange: 18, attackCooldown: -0.26, knockback: 44, attackArc: 0.22, hitCount: 3, critChance: 0.1 } },
+  { id: "reapers_kiss", name: "Reaper's Kiss", slot: "weapon", weaponType: "dagger", rarity: "legendary", color: "#cbb24a", trait: "execute", desc: "Finishes what fear begins.", mods: { meleeDamage: 22, attackRange: 20, attackCooldown: -0.28, knockback: 50, attackArc: 0.24, hitCount: 3, critChance: 0.14 } },
 
   // --- Bows (ranged physical — fire an arrow; damage = weapon dmg) ---
   { id: "hunting_bow", name: "Hunting Bow", slot: "weapon", weaponType: "bow", rarity: "common", color: "#9c7a4a", desc: "Keeps trouble at arm's length.", mods: { meleeDamage: 22, attackCooldown: 0.04, knockback: 70, projSpeed: 620, projR: 6 } },
   { id: "icewind_bow", name: "Icewind Bow", slot: "weapon", weaponType: "bow", rarity: "rare", color: "#5f86c4", desc: "Arrows that whistle cold.", mods: { meleeDamage: 36, attackCooldown: 0, knockback: 90, projSpeed: 700, projR: 7 } },
-  { id: "aurora_longbow", name: "Aurora Longbow", slot: "weapon", weaponType: "bow", rarity: "legendary", color: "#cbb24a", desc: "Looses ribbons of light.", mods: { meleeDamage: 60, attackCooldown: -0.06, knockback: 120, projSpeed: 820, projR: 8 } },
+  { id: "aurora_longbow", name: "Aurora Longbow", slot: "weapon", weaponType: "bow", rarity: "legendary", color: "#cbb24a", trait: "multishot", desc: "Looses ribbons of light — three at a breath.", mods: { meleeDamage: 60, attackCooldown: -0.06, knockback: 120, projSpeed: 820, projR: 8 } },
 
   // --- Staves (ranged magic — homing frost bolt that chills on impact) ---
   { id: "frost_wand", name: "Frost Wand", slot: "weapon", weaponType: "staff", rarity: "uncommon", color: "#6f7fb0", desc: "Seeks, then freezes.", mods: { meleeDamage: 24, attackCooldown: 0.06, knockback: 60, projSpeed: 380, projR: 9, frostTouch: true } },
   { id: "blizzard_scepter", name: "Blizzard Scepter", slot: "weapon", weaponType: "staff", rarity: "epic", color: "#8a6fce", desc: "A storm bound to a rod.", mods: { meleeDamage: 42, attackCooldown: 0, knockback: 80, projSpeed: 430, projR: 11, frostTouch: true } },
+  { id: "aurora_scepter", name: "Aurora Scepter", slot: "weapon", weaponType: "staff", rarity: "legendary", color: "#cbb24a", trait: "chain", desc: "Cold leaps from foe to foe.", mods: { meleeDamage: 58, attackCooldown: -0.04, knockback: 90, projSpeed: 470, projR: 12, frostTouch: true } },
 
   // --- Cloaks / scarves (grant the dash) ---
   { id: "tattered_scarf", name: "Tattered Scarf", slot: "cloak", rarity: "common", color: "#9a3a3a", desc: "A short, scrappy dash.", mods: { dashEnabled: true, dashSpeed: 900, dashTime: 0.12, dashRest: -0.02 } },
@@ -119,7 +132,18 @@ export function makeItem(templateOrId) {
   const item = { uid: uidCounter++, id: t.id, name: t.name, slot: t.slot, rarity: t.rarity, color: t.color, desc: t.desc, mods: { ...t.mods }, power: powerFor(1, t.rarity, 100) };
   if (t.weaponType) item.weaponType = t.weaponType; // top-level, not a stat mod
   if (t.classes) item.classes = [...t.classes]; // class-locked armor
+  if (t.trait) item.trait = t.trait; // weapon identity — a special on-hit/on-shot ability
   return item;
+}
+
+// The weapon's trait — from the item if present, else looked up from its template by id.
+// (Items saved before traits existed lack the field, so we fall back to the template;
+// the trait is intrinsic to the weapon, not a rolled/stored property.)
+export function traitForItem(item) {
+  if (!item) return null;
+  if (item.trait) return item.trait;
+  const t = template(item.id);
+  return (t && t.trait) || null;
 }
 
 
@@ -227,6 +251,39 @@ export function decodeRelic(rng = Math.random, forClass = null, sourceLevel = 5)
     if (wearable.length) legends = wearable;
   }
   return rollItem(legends[Math.floor(rng() * legends.length)], sourceLevel);
+}
+
+// --- Crafting recipes (the Forge) -----------------------------------------
+// Forge a trait-legendary of a chosen weapon archetype. A fresh roll (quality +
+// affixes vary), with its identity trait intact (carried by makeItem).
+export function forgeLegendary(weaponType, sourceLevel = 6) {
+  const t = ITEM_TEMPLATES.find((x) => x.rarity === "legendary" && x.slot === "weapon" && x.weaponType === weaponType);
+  return t ? rollItem(t, sourceLevel) : null;
+}
+// Temper: bump an item's power + scale its numeric mods (in place, same uid → equipped
+// slots + saves stay valid). NOSCALE structural mods are left alone.
+export function temperItem(item) {
+  const q = 1.08;
+  for (const k of Object.keys(item.mods)) {
+    if (typeof item.mods[k] === "number" && !NOSCALE_MODS.has(k)) item.mods[k] = roundMod(item.mods[k] * q);
+  }
+  item.quality = Math.min(160, Math.round((item.quality || 100) * q));
+  item.power = Math.round((item.power || 1) * 1.1);
+  return item;
+}
+// Reroll affixes: strip the old affix mods, roll fresh ones, re-merge, recompose name
+// (in place, same uid).
+export function rerollAffixes(item) {
+  for (const af of item.affixes || []) {
+    for (const k of Object.keys(af.mod)) item.mods[k] = roundMod((item.mods[k] || 0) - af.mod[k]);
+  }
+  item.affixes = rollAffixes(item.slot, AFFIX_COUNT[item.rarity]());
+  for (const af of item.affixes) {
+    for (const k of Object.keys(af.mod)) item.mods[k] = roundMod((item.mods[k] || 0) + af.mod[k]);
+  }
+  const t = template(item.id);
+  item.name = composeName((t && t.name) || item.name, item.affixes);
+  return item;
 }
 
 function weightedRarity(rng) {

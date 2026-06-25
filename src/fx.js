@@ -11,6 +11,7 @@ export class Fx {
     this.parts = []; // impact spark particles
     this.floaters = []; // floating damage numbers
     this.rings = []; // expanding shockwave rings
+    this.bolts = []; // jagged lightning arcs (chain weapon)
     this.shake = 0; // current screen-shake magnitude
     this.hitStop = 0; // remaining sim-freeze time
   }
@@ -34,6 +35,22 @@ export class Fx {
   ring(x, y, r0, r1, life, color, width) {
     this.rings.push({ x, y, r0, r1, life, maxLife: life, color, width: width || 3 });
   }
+  // A jagged lightning arc between two points (chain weapon).
+  bolt(x1, y1, x2, y2, color) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len; // unit perpendicular
+    const segs = 7;
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const jit = i === 0 || i === segs ? 0 : (Math.random() - 0.5) * Math.min(26, len * 0.22);
+      pts.push({ x: x1 + dx * t + nx * jit, y: y1 + dy * t + ny * jit });
+    }
+    this.bolts.push({ pts, color: color || "#bfe8ff", life: 0.16, maxLife: 0.16 });
+  }
 
   // Decay shake + advance particles/floaters/rings (real dt — runs during hit-stop).
   update(dt) {
@@ -54,6 +71,8 @@ export class Fx {
     this.floaters = this.floaters.filter((f) => f.life > 0);
     for (const r of this.rings) r.life -= dt;
     this.rings = this.rings.filter((r) => r.life > 0);
+    for (const b of this.bolts) b.life -= dt;
+    this.bolts = this.bolts.filter((b) => b.life > 0);
   }
 
   // Drawn in world space (inside the camera transform): sparks, then floating
@@ -96,6 +115,28 @@ export class Fx {
       ctx.lineWidth = r.width * (1 - t * 0.6);
       ctx.beginPath();
       ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const b of this.bolts) {
+      const a = b.life / b.maxLife;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      // Glowing outer arc, then a bright white core.
+      ctx.strokeStyle = b.color;
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 9;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      b.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      b.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       ctx.stroke();
       ctx.restore();
     }

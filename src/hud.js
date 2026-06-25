@@ -8,7 +8,7 @@ import { roundRect, dist } from "./utils.js";
 import { BIOMES } from "./biomes.js";
 import { depthColor, dungeonConfig, FINAL_DEPTH } from "./dungeon.js";
 import { WEAPON_TYPE_NAMES, RARITIES, RARITY_ORDER, recommendedPower, itemPower } from "./items.js";
-import { getShards, shardsForRun, hasWon, getDeepest } from "./meta.js";
+import { getShards, getCores, shardsForRun, hasWon, getDeepest } from "./meta.js";
 import { drawItemIcon, slotTint, slotTag, withAlpha, clipText } from "./inventory.js";
 
 const CLASS_HUD_COLOR = { drifter: "#5be3a0", warden: "#e0a64b", auralist: "#7fb0ff" };
@@ -727,15 +727,24 @@ export function drawHud(view) {
   ctx.font = "700 11px -apple-system, sans-serif";
   ctx.fillText(`${player.class[0].toUpperCase() + player.class.slice(1)} · ${WEAPON_TYPE_NAMES[player.weaponType] || "Unarmed"}`, x, dy + dh + 31 + (scene === "dungeon" && onRun ? 15 : 0));
 
-  // Campaign goal tracker (overworld only).
+  // Campaign objective (overworld only) — context-aware so it's obvious what to do next.
   if (scene === "overworld") {
-    ctx.font = "700 11px -apple-system, sans-serif";
+    const oy = dy + dh + 46;
     if (hasWon()) {
       ctx.fillStyle = "#bfe3ff";
-      ctx.fillText("✦ CHAMPION — the Heart of Winter is stilled", x, dy + dh + 46);
+      ctx.font = "800 12px -apple-system, sans-serif";
+      ctx.fillText("✦ CHAMPION — the Heart of Winter is stilled", x, oy);
     } else {
-      ctx.fillStyle = "#8fb7ff";
-      ctx.fillText(`GOAL · reach Depth ${FINAL_DEPTH}  (deepest ${getDeepest()})`, x, dy + dh + 46);
+      const deepest = getDeepest();
+      ctx.fillStyle = "#ffd27a";
+      ctx.font = "800 12px -apple-system, sans-serif";
+      ctx.fillText("◆ OBJECTIVE", x, oy);
+      ctx.fillStyle = "#dbe3f0";
+      ctx.font = "600 12px -apple-system, sans-serif";
+      const msg = deepest === 0
+        ? "Find a dungeon entrance in the wilds and dive in (E)"
+        : `Descend to Depth ${FINAL_DEPTH}, still the Heart of Winter  ·  best ${deepest}/${FINAL_DEPTH}`;
+      ctx.fillText(msg, x, oy + 16);
     }
   }
 
@@ -747,14 +756,17 @@ export function drawHud(view) {
   ctx.fillText(`◉ ${player.coins}`, w - 20, 52);
   ctx.fillStyle = "#5aa8cc";
   ctx.fillText(`✦ ${getShards()}`, w - 20, 74);
+  // Frost Cores — the crafting material spent at the Forge / paid by bounties.
+  ctx.fillStyle = "#7fc8e6";
+  ctx.fillText(`✺ ${getCores()}`, w - 20, 96);
   // Power Level — the looter-shooter chase number.
   ctx.fillStyle = "#ffd27a";
   ctx.font = "800 18px -apple-system, sans-serif";
-  ctx.fillText(`⚡ ${player.power}`, w - 20, 100);
+  ctx.fillText(`⚡ ${player.power}`, w - 20, 122);
   if (player.godMode) {
     ctx.fillStyle = "#7CFC9B";
     ctx.font = "700 12px -apple-system, sans-serif";
-    ctx.fillText("GOD", w - 20, 120);
+    ctx.fillText("GOD", w - 20, 142);
   }
   ctx.textAlign = "left";
 }

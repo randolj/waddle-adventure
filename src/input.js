@@ -28,8 +28,12 @@ export class Input {
     // — gates the touch CAMP button (set each frame by main.js).
     this.canRecall = false;
 
+    // Keys the game consumes — preventDefault them (without a modifier) so Space/arrows
+    // don't scroll the page / portal iframe, and they don't trip platform shortcuts.
+    const GAME_KEYS = new Set([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", "e", "i", "m", "r", "`"]);
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
+      if (GAME_KEYS.has(k) && !e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();
       if (!e.repeat) this.pressed.add(k); // ignore auto-repeat for edge detection
       this.keys.add(k);
     });

@@ -8,15 +8,22 @@ import { Dungeon, dungeonConfig, depthColor, FINAL_DEPTH } from "./dungeon.js";
 import { drawMap } from "./minimap.js";
 import { InventoryUI } from "./inventory.js";
 import { DebugMenu } from "./debug.js";
-import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, decodeRelic, RARITIES, SLOTS, CLASS_NAMES } from "./items.js";
+import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, decodeRelic, forgeLegendary, temperItem, rerollAffixes, RARITIES, SLOTS, CLASS_NAMES } from "./items.js";
 import { MetaUI } from "./metaui.js";
+import { BoardUI } from "./boardui.js";
+import { ForgeUI } from "./forgeui.js";
 import { MenuScreen } from "./menu.js";
 import { Fx } from "./fx.js";
 import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawWaypoints, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
-import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest } from "./meta.js";
+import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest, reloadFromStore, getCores, addCores, spendCores, getBounties, bountyProgress, claimBounty, rerollBounty, resetBounties } from "./meta.js";
 import { BIOMES } from "./biomes.js";
-import { sfx, resumeAudio, toggleMute, isMuted } from "./sfx.js";
+import { sfx, resumeAudio, toggleMute, isMuted, setAutoMute, setPortalMute } from "./sfx.js";
+import { portal } from "./portal.js";
 import { dist, angleDiff, clamp } from "./utils.js";
+
+// Debug overlay (backtick) is dev-only — off on a real portal/production host so players
+// can't open it. Force it anywhere with ?debug in the URL.
+const DEBUG_ENABLED = ["localhost", "127.0.0.1", ""].includes(location.hostname) || new URLSearchParams(location.search).has("debug");
 
 const WORLD_W = 10000;
 const WORLD_H = 10000;
@@ -43,6 +50,8 @@ const touch = new TouchControls(canvas, input);
 const camera = new Camera();
 const ui = new InventoryUI();
 const metaUi = new MetaUI();
+const boardUi = new BoardUI();
+const forgeUi = new ForgeUI();
 const menu = new MenuScreen();
 const debug = new DebugMenu();
 const fx = new Fx(); // screen juice: particles, floaters, rings, shake, hit-stop
@@ -77,6 +86,8 @@ let prevSafe = true;
 let nearShop = false;
 let nearElder = false;
 let nearQuartermaster = false;
+let nearBoard = false; // standing at the Mission Board
+let nearForge = false; // standing at the Forge
 let nearTownShop = null; // the town whose shop the player is standing at
 let nearDungeon = null;
 let nearChest = false; // standing at an unopened treasure chest
@@ -118,22 +129,69 @@ window.addEventListener("orientationchange", resize);
 if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
 resize();
 
-// Mobile: collapse the browser chrome by entering fullscreen on the first touch.
-// Android/Chrome honour this; iOS Safari has no element-fullscreen API, so there the
-// PWA "Add to Home Screen" route (see index.html meta tags) is the way to true fullscreen.
-window.addEventListener(
-  "touchstart",
-  () => {
-    if ((navigator.maxTouchPoints || 0) === 0) return; // desktop: don't fullscreen the window
-    const el = document.documentElement;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { try { req.call(el); } catch (e) {} }
-  },
-  { once: true, passive: true }
-);
+// Mobile: collapse the browser chrome by entering fullscreen on the first touch — but
+// ONLY when running top-level (standalone / itch direct / installed PWA). Inside a portal
+// iframe (CrazyGames etc.) custom fullscreen is PROHIBITED — it interferes with the
+// portal's own fullscreen + ad system — so the portal handles fullscreen instead.
+if (window.self === window.top) {
+  window.addEventListener(
+    "touchstart",
+    () => {
+      if ((navigator.maxTouchPoints || 0) === 0) return; // desktop: don't fullscreen the window
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) { try { req.call(el); } catch (e) {} }
+    },
+    { once: true, passive: true }
+  );
+}
 
 function viewSize() {
   return { w: canvas.width / dpr, h: canvas.height / dpr };
+}
+
+// --- Pause (ad break / tab hidden / window blurred) ---
+// REASON-COUNTED: the sim (update() early-returns) and audio stay paused while ANY
+// reason is active, so independent sources never clobber each other — e.g. an ad that
+// ends while the tab is still hidden doesn't resume the game in the background, and a
+// focus event mid-ad doesn't unmute over the ad. Doesn't touch the player's own mute.
+const pauseReasons = new Set();
+let paused = false;
+function applyPaused() {
+  const p = pauseReasons.size > 0;
+  if (p === paused) return;
+  paused = p;
+  setAutoMute(p);
+  if (p) {
+    portal.gameplayStop();
+  } else {
+    resumeAudio(); // browsers auto-suspend the AudioContext while hidden — wake it
+    if (scene !== "menu" && !player.dead && !victory) portal.gameplayStart();
+  }
+}
+function pauseFor(reason) { pauseReasons.add(reason); applyPaused(); }
+function resumeFrom(reason) { pauseReasons.delete(reason); applyPaused(); }
+// External/debug entry point: true adds a manual pause, false is a hard resume (clears
+// every reason) so it can never get wedged.
+function setPaused(p) {
+  if (p) pauseReasons.add("manual");
+  else pauseReasons.clear();
+  applyPaused();
+}
+
+// Pause when the tab is hidden or the window loses focus; resume when it returns.
+document.addEventListener("visibilitychange", () => (document.hidden ? pauseFor("hidden") : resumeFrom("hidden")));
+window.addEventListener("blur", () => pauseFor("blur"));
+window.addEventListener("focus", () => resumeFrom("blur"));
+// A pointer gesture means the game window is focused & interactive — clear any stale
+// blur pause so play can never boot into a frozen state.
+window.addEventListener("pointerdown", () => resumeFrom("blur"));
+
+// Request a portal ad at a natural between-runs beat. The "ad" reason holds the pause
+// for the WHOLE ad regardless of any focus/visibility churn its iframe causes; a no-op
+// (no pause) when no portal SDK is wired or within the interval.
+function runAdBreak() {
+  portal.adBreak({ onStart: () => pauseFor("ad"), onFinish: () => resumeFrom("ad") });
 }
 
 // Build a fresh world + player for a class (loading `profile` if returning).
@@ -198,6 +256,7 @@ function startCharacter(cls) {
   banner = hasWon()
     ? { text: `${CLASS_NAMES[cls]}, Champion of the Deep — descend anew`, t: 3, safe: true }
     : { text: `The Heart of Winter stirs below — descend to Depth ${FINAL_DEPTH} and still it`, t: 4.2, safe: true };
+  if (!paused) portal.gameplayStart(); // else applyPaused() fires it on resume
 }
 
 // Save and return to the title screen.
@@ -208,6 +267,7 @@ function returnToTitle() {
   metaUi.close();
   input.wheelY = 0; // don't carry a gameplay scroll into the menu
   menu.mode = "main";
+  portal.gameplayStop();
 }
 
 const menuApi = { onPlay: (cls) => startCharacter(cls) };
@@ -225,6 +285,64 @@ function addFloater(x, y, text, color, size) {
 function spawnBurst(x, y, n, color, speed, size, life) {
   fx.burst(x, y, n, color, speed, size, life);
 }
+function addBolt(x1, y1, x2, y2, color) {
+  fx.bolt(x1, y1, x2, y2, color);
+}
+
+// Advance bounties + toast any that just completed. The faucet wrapper keeps the
+// reward-on-CLAIM rule (completion only flips a flag; cores/coins are granted at the board).
+function notifyBounty(type, amount, tag) {
+  for (const b of bountyProgress(type, amount, tag)) {
+    addToast(`Bounty complete — ${b.label}!  Claim at the Board`, b.color || "#ffd166");
+  }
+}
+
+// Camp interactable APIs — keep coin/save/toast side-effects here (where the lifecycle
+// rules live), out of the overlay render code.
+const boardApi = {
+  claim(b) {
+    const r = claimBounty(b.bid);
+    if (r) {
+      player.coins += r.coins;
+      saveActiveChar();
+      addToast(`Bounty claimed!  +${r.cores} ✺  +${r.coins} ◉`, "#bfe8ff");
+    }
+  },
+  reroll(b) {
+    if (rerollBounty(b.bid)) addToast("Bounty rerolled", "#cdd5e2");
+  },
+};
+const forgeApi = {
+  forge(wt) {
+    if (player.coins < 120 || !spendCores(24)) return false; // coin check first → no refund needed
+    player.coins -= 120;
+    const it = forgeLegendary(wt, Math.max(6, Math.min(12, getDeepest())));
+    if (!it) return false;
+    player.addItem(it);
+    itemPickups.push({ item: it, t: 3.4 });
+    saveActiveChar();
+    addToast(`Forged ${it.name}!`, "#ef9f27");
+    return true;
+  },
+  temper(item) {
+    if (player.coins < 60 || !spendCores(6)) return false;
+    player.coins -= 60;
+    temperItem(item);
+    player.recomputeStats();
+    saveActiveChar();
+    addToast(`Tempered ${item.name}`, "#bfe8ff");
+    return true;
+  },
+  reroll(item) {
+    if (player.coins < 40 || !spendCores(4)) return false;
+    player.coins -= 40;
+    rerollAffixes(item);
+    player.recomputeStats();
+    saveActiveChar();
+    addToast(`Rerolled ${item.name}`, "#bfe8ff");
+    return true;
+  },
+};
 
 // Damage numbers, sparks, combo, frost, shake + hit-stop for a set of hits.
 // Shared by melee swings, the Warden contact-dash, AND ranged projectile impacts.
@@ -355,7 +473,8 @@ function updateProjectiles(dt, level) {
     const friendly = p.owner === "player";
     // Homing seeks the player (enemy shots) or the nearest enemy (friendly shots).
     if (p.homing) {
-      const tgt = friendly ? nearestEnemy(p.x, p.y) : player.dead ? null : player;
+      // A chained bolt locks onto its chosen next foe (p.target); others seek the nearest.
+      const tgt = friendly ? (p.target && !p.target.dead ? p.target : nearestEnemy(p.x, p.y)) : player.dead ? null : player;
       if (tgt) {
         const want = Math.atan2(tgt.y - p.y, tgt.x - p.x);
         const cur = Math.atan2(p.vy, p.vx);
@@ -381,6 +500,34 @@ function updateProjectiles(dt, level) {
         if (player.stats.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + dealt * player.stats.lifesteal);
         if (p.chill && !e.dead) e.applyChill(p.chill);
         spawnHitFx([{ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit, killed: e.dead, dashStrike: false, frost: !!p.chill, blocked: dealt < dmg }]);
+        // Chain (staff trait): lightning leaps INSTANTLY foe-to-foe, jagged arc + weaker
+        // each jump. Not a traveling bullet — it reads as chain lightning.
+        if (p.chain > 0) {
+          let from = e;
+          let chainDmg = p.damage;
+          let jumps = p.chain;
+          const zapped = new Set([e]);
+          while (jumps > 0) {
+            let best = null;
+            let bd = 300;
+            for (const o of enemies) {
+              if (o.dead || zapped.has(o)) continue;
+              const dd = dist(from.x, from.y, o.x, o.y);
+              if (dd < bd) { bd = dd; best = o; }
+            }
+            if (!best) break;
+            chainDmg = Math.max(1, Math.round(chainDmg * 0.8));
+            const a = Math.atan2(best.y - from.y, best.x - from.x);
+            const dealt = best.takeHit(chainDmg, a, (p.knockback || 80) * 0.35);
+            if (player.stats.lifesteal > 0) player.hp = Math.min(player.maxHp, player.hp + dealt * player.stats.lifesteal);
+            if (p.chill && !best.dead) best.applyChill(p.chill);
+            addBolt(from.x, from.y, best.x, best.y, "#bfe8ff");
+            spawnHitFx([{ x: best.x, y: best.y, r: best.r, color: best.color, damage: dealt, crit: false, killed: best.dead, dashStrike: false, frost: !!p.chill, blocked: dealt < chainDmg }]);
+            zapped.add(best);
+            from = best;
+            jumps--;
+          }
+        }
         p.dead = true;
         break;
       }
@@ -431,6 +578,7 @@ function enterDungeon(depth, keepReturn = false) {
     runDeepest = Math.max(runDeepest, depth);
   }
   noteDepth(runDeepest); // record the goal-tracker's deepest-ever (account-wide)
+  notifyBounty("depth", runDeepest); // depth bounties — same safe banking point as noteDepth
   dungeon = new Dungeon(depth);
   scene = "dungeon";
   const s = dungeon.startPos();
@@ -464,8 +612,11 @@ function exitDungeon() {
   if (onRun) {
     const gained = shardsForRun(depth, true);
     addShards(gained);
+    const exCores = 1 + Math.floor(depth / 3);
+    addCores(exCores);
     lastRunResult = { extracted: true, depth, shards: gained };
-    addToast(`Extracted from Depth ${depth} — loot secured  ·  +${gained} ✦`, "#7fd2ff");
+    addToast(`Extracted from Depth ${depth} — loot secured  ·  +${gained} ✦  +${exCores} ✺`, "#7fd2ff");
+    notifyBounty("extract", 1);
   }
   onRun = false;
   runSnapshot = null;
@@ -482,6 +633,7 @@ function exitDungeon() {
   portals = [];
   banner = { text: "Back in the wilds", t: 1.8, safe: false };
   saveActiveChar();
+  runAdBreak(); // extracted — a natural between-runs ad beat
 }
 
 // Lose the run: dropped in a dungeon. Forfeit all loot picked up this run (and
@@ -489,7 +641,10 @@ function exitDungeon() {
 function loseRun() {
   const depth = runDeepest;
   const gained = onRun ? shardsForRun(depth, false) : 0;
-  if (onRun) addShards(gained);
+  if (onRun) {
+    addShards(gained);
+    addCores(Math.max(1, depth >> 1)); // a consolation of cores for the depth reached
+  }
   lastRunResult = { extracted: false, depth, shards: gained };
 
   if (runSnapshot) {
@@ -509,6 +664,7 @@ function loseRun() {
   onRun = false;
   runSnapshot = null;
   respawnAtCamp();
+  runAdBreak(); // fell in the dungeon — a natural between-runs ad beat
 }
 
 // Send the player back to the camp alive, WITHOUT wiping gear/meta (unlike
@@ -567,6 +723,11 @@ function completeDungeon() {
   const coins = reward.coins[0] + Math.floor(Math.random() * (reward.coins[1] - reward.coins[0] + 1));
   player.coins += coins;
   addToast(`Dungeon cleared!  +${coins} coins`, "#ffd166");
+  // Frost Cores for the clear (account-wide, safe to bank mid-run like shards) + bounty.
+  const clearCores = 2 + Math.floor(dungeon.depth / 2);
+  addCores(clearCores);
+  addToast(`+${clearCores} ✺ Frost Cores`, "#bfe8ff");
+  notifyBounty("clears", 1);
   for (let i = 0; i < (reward.items || 0); i++) {
     const item = rollItem(rollDropTemplate(Math.random, player.class), dungeon.depth);
     player.addItem(item);
@@ -583,6 +744,7 @@ function completeDungeon() {
     markWon();
     const bonus = 60 + dungeon.depth * 8;
     addShards(bonus);
+    addCores(25); // a chunk of cores for felling the final boss
     lastRunResult = { extracted: true, depth: dungeon.depth, shards: bonus, victory: true };
     sfx.kill(true);
     if (firstWin) {
@@ -673,12 +835,19 @@ const debugApi = {
     addToast("+ Sealed Relic", "#ef9f27");
   },
   equipLegendaries: () => {
-    for (const id of ["glacier_edge", "aurora_mantle", "heart_of_winter"]) {
+    // All five trait weapons (one per archetype) go to the bag so you can swap to test
+    // each identity; the cloak + trinket equip, and the sword is equipped to start.
+    for (const id of ["glacier_edge", "glacier_maul", "reapers_kiss", "aurora_longbow", "aurora_scepter"]) {
+      player.inventory.push(makeItem(id));
+    }
+    for (const id of ["aurora_mantle", "heart_of_winter"]) {
       const it = makeItem(id);
       player.inventory.push(it);
       player.equip(it);
     }
-    addToast("Equipped legendaries", "#ef9f27");
+    const sword = player.inventory.find((it) => it.id === "glacier_edge");
+    if (sword) player.equip(sword);
+    addToast("Legendaries in the bag — swap weapons (I) to try each trait", "#ef9f27");
   },
   clearInventory: () => {
     for (const s of SLOTS) player.unequip(s);
@@ -698,6 +867,14 @@ const debugApi = {
   giveShards: (n) => {
     addShards(n);
     addToast(`+${n} ✦ shards`, "#7fd2ff");
+  },
+  giveCores: (n) => {
+    addCores(n);
+    addToast(`+${n} ✺ Frost Cores`, "#bfe8ff");
+  },
+  rollBounties: () => {
+    resetBounties();
+    addToast("Bounties rerolled", "#cdd5e2");
   },
   get playerClass() {
     return player.class;
@@ -744,14 +921,19 @@ window.__game = {
   get portals() { return portals; },
   get projectiles() { return projectiles; },
   get fx() { return { parts: fx.parts, floaters: fx.floaters, rings: fx.rings, shake: fx.shake, hitStop: fx.hitStop, ambient, spawners, combo, comboTimer }; },
-  get run() { return { onRun, runDeepest, runSnapshot, lastRunResult, shards: getShards() }; },
+  get run() { return { onRun, runDeepest, runSnapshot, lastRunResult, shards: getShards(), cores: getCores(), bounties: getBounties() }; },
   ui,
   metaUi,
+  boardUi,
+  forgeUi,
   menu,
   debug,
   debugApi,
   input,
   touch,
+  portal,
+  get paused() { return paused; },
+  setPaused,
   enterDungeon,
   descendDungeon,
   exitDungeon,
@@ -777,6 +959,9 @@ function frame(now) {
 function update(dt) {
   const { w, h } = viewSize();
 
+  // Frozen for an ad / hidden tab / lost focus — render() still paints the last frame.
+  if (paused) return;
+
   // Title screen — the menu handles its own input during render().
   if (scene === "menu") {
     menu.t += dt;
@@ -785,8 +970,8 @@ function update(dt) {
 
   const level = scene === "dungeon" ? dungeon : world;
 
-  // Debug menu (backtick) — pauses everything while open.
-  if (input.consumePress("`")) {
+  // Debug menu (backtick) — dev-only (DEBUG_ENABLED); pauses everything while open.
+  if (DEBUG_ENABLED && input.consumePress("`")) {
     if (debug.isOpen()) debug.close();
     else {
       ui.close();
@@ -802,13 +987,17 @@ function update(dt) {
   // Inventory toggle (works in both scenes).
   if (input.consumePress("i")) {
     metaUi.close();
+    boardUi.close();
+    forgeUi.close();
     if (ui.isOpen()) ui.close();
     else ui.openInventory();
   }
   if (input.consumePress("escape")) {
-    if (ui.isOpen() || metaUi.isOpen()) {
+    if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
       ui.close();
       metaUi.close();
+      boardUi.close();
+      forgeUi.close();
     } else if (scene === "overworld" && world.inZone(world.safeZone, player.x, player.y)) {
       // At the HOME camp with nothing open — back to the title (saves). Towns are
       // outposts, not the quit point.
@@ -822,6 +1011,8 @@ function update(dt) {
     nearShop = !player.dead && dist(player.x, player.y, world.shop.x, world.shop.y) < 78;
     nearElder = !player.dead && dist(player.x, player.y, world.elder.x, world.elder.y) < 72;
     nearQuartermaster = !player.dead && dist(player.x, player.y, world.quartermaster.x, world.quartermaster.y) < 72;
+    nearBoard = !player.dead && dist(player.x, player.y, world.missionBoard.x, world.missionBoard.y) < 72;
+    nearForge = !player.dead && dist(player.x, player.y, world.forge.x, world.forge.y) < 72;
     nearTownShop = null;
     for (const t of world.towns) {
       if (!player.dead && dist(player.x, player.y, t.shop.x, t.shop.y) < 78) {
@@ -845,7 +1036,7 @@ function update(dt) {
       }
     }
   } else {
-    nearShop = nearElder = nearQuartermaster = false;
+    nearShop = nearElder = nearQuartermaster = nearBoard = nearForge = false;
     nearTownShop = null;
     nearDungeon = hoverDungeon = null;
     // Dungeon interactables — chest in a treasure room, fountain in a heal room.
@@ -857,15 +1048,18 @@ function update(dt) {
 
   // Is there anything E would act on right now? Drives the touch E button's visibility.
   const nearPortal = scene === "dungeon" && !player.dead && portals.some((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
-  input.canInteract = !!(nearChest || nearFountain || nearPortal || nearElder || nearShop || nearTownShop || nearQuartermaster || nearDungeon);
+  input.canInteract = !!(nearChest || nearFountain || nearPortal || nearElder || nearShop || nearTownShop || nearQuartermaster || nearBoard || nearForge || nearDungeon);
   // Recall-to-camp is an overworld convenience (not from a dungeon dive) and pointless
   // when you're already in the camp safe zone — gates the touch CAMP button.
   input.canRecall = scene === "overworld" && !player.dead && !world.inZone(world.safeZone, player.x, player.y);
 
   // Context action (E): shop / elder / quartermaster / enter dungeon / portals.
   if (input.consumePress("e")) {
-    if (metaUi.isOpen()) metaUi.close();
-    else if (ui.isOpen() && ui.mode === "shop") ui.close();
+    if (metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
+      metaUi.close();
+      boardUi.close();
+      forgeUi.close();
+    } else if (ui.isOpen() && ui.mode === "shop") ui.close();
     else if (scene === "dungeon") {
       const p = portals.find((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
       if (p) {
@@ -877,10 +1071,12 @@ function update(dt) {
     else if (nearShop) ui.openShop(shopStock, "Camp shop");
     else if (nearTownShop) ui.openShop(nearTownShop.stock, `${nearTownShop.name} — tier ${nearTownShop.tier} shop`);
     else if (nearQuartermaster) metaUi.openMeta();
+    else if (nearBoard) boardUi.openBoard();
+    else if (nearForge) forgeUi.openForge();
     else if (nearDungeon) enterDungeon(nearDungeon.tierIndex + 1);
   }
 
-  if (ui.isOpen() || metaUi.isOpen()) {
+  if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
     recallTimer = 0;
     camera.follow(player, w, h, level.width, level.height);
     return;
@@ -957,10 +1153,21 @@ function update(dt) {
   // Player attack: spawn a ranged shot if one is pending (bow/staff).
   if (player.pendingShot) {
     const s = player.pendingShot;
-    const pr = makeProjectile(player.x, player.y, s.angle, s.speed, s.damage, s.magic ? "#9fd8ff" : "#ffe2a8", s.homing, s.r, "player");
-    pr.chill = s.chill || 0;
-    pr.knockback = s.knockback || 80;
-    projectiles.push(pr);
+    // Multishot (trait) fans out 2*spread+1 shots — each nudged sideways from the muzzle
+    // so the spread reads clearly even point-blank; otherwise a single shot.
+    const shots = [{ a: s.angle, o: 0 }];
+    for (let i = 1; i <= (s.spread || 0); i++) {
+      shots.push({ a: s.angle - i * 0.17, o: -i * 13 }, { a: s.angle + i * 0.17, o: i * 13 });
+    }
+    const px = Math.cos(s.angle + Math.PI / 2);
+    const py = Math.sin(s.angle + Math.PI / 2);
+    for (const sh of shots) {
+      const pr = makeProjectile(player.x + px * sh.o, player.y + py * sh.o, sh.a, s.speed, s.damage, s.magic ? "#9fd8ff" : "#ffe2a8", s.homing, s.r, "player");
+      pr.chill = s.chill || 0;
+      pr.knockback = s.knockback || 80;
+      pr.chain = s.chain || 0; // Chain (trait) — bounces remaining on hit
+      projectiles.push(pr);
+    }
     player.pendingShot = null;
   }
 
@@ -969,6 +1176,15 @@ function update(dt) {
   const hits = player.resolveAttack(enemies);
   if (player.contactHits.length) hits.push(...player.contactHits);
   spawnHitFx(hits);
+  // Weapon-trait visuals (cleave crescent / quake shockwave) emitted by resolveAttack.
+  for (const t of player.traitFx) {
+    if (t.type === "ring") addRing(t.x, t.y, t.r * 0.3, t.r, 0.35, t.color, 5);
+    else if (t.type === "arc") {
+      addRing(t.x, t.y, 6, 48, 0.28, t.color, 3);
+      spawnBurst(t.x, t.y, 9, t.color, 230, 3, 0.3);
+    }
+  }
+  player.traitFx.length = 0;
 
   for (const e of enemies) e.update(gdt, player, level, projectiles, enemies);
   flushEnemySpawns(level); // summoner minions queued during update
@@ -1075,7 +1291,8 @@ function openChest() {
   pickups.push({ kind: "item", x: it.cx, y: it.cy - 40, item: rollItem(rollDropTemplate(Math.random, player.class), dungeon.depth), t: 0 });
   pickups.push({ kind: "coin", x: it.cx - 46, y: it.cy + 14, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
   pickups.push({ kind: "coin", x: it.cx + 46, y: it.cy + 14, amount: 20 + Math.floor(Math.random() * 30), t: 0 });
-  addToast("The chest yields its treasure!", "#ffd166");
+  addCores(1); // a Frost Core tucked in the chest
+  addToast("The chest yields its treasure!  +1 ✺", "#ffd166");
   spawnBurst(it.cx, it.cy, 18, "#ffd166", 240, 3.5, 0.5);
   addRing(it.cx, it.cy, 8, 76, 0.5, "#ffe27a", 4);
   sfx.item();
@@ -1136,6 +1353,9 @@ function flushEnemySpawns(level) {
 }
 
 function onEnemyDeath(e) {
+  // Kill bounties — ONE call site that fires in both scenes (overworld + dungeon).
+  notifyBounty("kills", 1);
+  notifyBounty("kindKills", 1, e.type);
   // Bomber bursts on death — whether it fused out or got killed first. AoE +
   // ring; only hurts the player if they're inside the blast.
   if (e.bomber) {
@@ -1189,7 +1409,7 @@ function render() {
   ctx.clearRect(0, 0, w, h);
 
   // Touch: route taps to the cursor whenever an overlay is up or no char is in play.
-  input.touchUi = scene === "menu" || ui.isOpen() || metaUi.isOpen() || debug.isOpen() || (player && player.dead) || victory;
+  input.touchUi = scene === "menu" || ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || debug.isOpen() || (player && player.dead) || victory;
 
   // Title screen replaces the whole frame.
   const hintEl = document.getElementById("hint");
@@ -1249,11 +1469,13 @@ function render() {
     else if (nearFountain && !ui.isOpen()) drawPrompt(view, "Press E to drink — heal up", "#7CFC9B");
   } else {
     drawWaypoints(view); // touch wayfinder arrows to camp + towns (gated to touch devices)
-    if (!ui.isOpen() && !metaUi.isOpen()) {
+    if (!ui.isOpen() && !metaUi.isOpen() && !boardUi.isOpen() && !forgeUi.isOpen()) {
       if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");
       else if (nearShop) drawPrompt(view, "Press E to shop", "#ffd166");
       else if (nearTownShop) drawPrompt(view, `Press E — shop at ${nearTownShop.name} (tier ${nearTownShop.tier})`, depthColor(nearTownShop.tier + 1));
       else if (nearQuartermaster) drawPrompt(view, "Press E — spend shards on upgrades", "#7fd2ff");
+      else if (nearBoard) drawPrompt(view, "Press E — review bounties", "#ffd166");
+      else if (nearForge) drawPrompt(view, "Press E — forge & upgrade gear", "#bfe8ff");
       else if (nearDungeon) drawPrompt(view, `Press E to enter — ${BIOMES[nearDungeon.biome].name} (Depth ${nearDungeon.tierIndex + 1})`, depthColor(nearDungeon.tierIndex + 1));
       if (hoverDungeon) drawEntranceTooltip(view, hoverDungeon);
       if (recallTimer > 0) drawRecall(view);
@@ -1267,8 +1489,26 @@ function render() {
   if (victory) drawVictory(view);
   if (ui.isOpen()) ui.render(ctx, w, h, player, input);
   if (metaUi.isOpen()) metaUi.render(ctx, w, h, player, input);
+  if (boardUi.isOpen()) boardUi.render(ctx, w, h, player, input, boardApi);
+  if (forgeUi.isOpen()) forgeUi.render(ctx, w, h, player, input, forgeApi);
   if (debug.isOpen()) debug.render(ctx, w, h, player, input, debugApi);
 }
 
 
+// Boot: tell the portal we're loading, init it (no-op without an SDK), then reveal the
+// game by fading out the HTML splash. Nothing to preload (art/audio are procedural), so
+// this resolves fast — the splash mainly covers ES-module load + any SDK handshake.
+portal.onSettingsMute = (m) => setPortalMute(m); // honor the CrazyGames player's mute toggle
+portal.loadingStart();
+Promise.race([
+  portal.init().catch(() => {}), // degrade to no-op on SDK failure (no unhandled rejection)
+  new Promise((r) => setTimeout(r, 8000)), // never let a hung SDK init lock the splash
+]).finally(() => {
+  // The Data Module is ready now (if on CrazyGames) — pick up a cloud/cross-device save
+  // before the player picks a character. Safe at the title screen (nothing committed).
+  reloadFromStore();
+  portal.loadingStop();
+  const splash = document.getElementById("splash");
+  if (splash) splash.classList.add("hidden");
+});
 requestAnimationFrame(frame);

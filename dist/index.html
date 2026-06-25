@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Waddle's Quest</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Installable / fullscreen on mobile ("Add to Home Screen" launches with no browser chrome). -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Waddle's Quest" />
+  <!-- CrazyGames SDK (portal integration). Loads before the game module so window.CrazyGames
+       is ready for portal.init(). Absent/blocked elsewhere -> the game degrades to no-op. -->
+  <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game"></canvas>
+    <div id="hint">
+      <strong>WASD</strong> move &nbsp;·&nbsp; <strong>Click</strong> swing &nbsp;·&nbsp; <strong>Space</strong> dash &nbsp;·&nbsp; <strong>I</strong> inventory &nbsp;·&nbsp; <strong>E</strong> interact &nbsp;·&nbsp; <strong>M</strong> map
+    </div>
+  </div>
+  <!-- Loading splash — shown until the game (and any portal SDK) is ready, then faded out. -->
+  <div id="splash">
+    <div class="splash-inner">
+      <div class="splash-title">Waddle's Quest</div>
+      <div class="splash-spinner" aria-hidden="true"></div>
+      <div class="splash-sub">Loading…</div>
+    </div>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<svg width="680" height="440" viewBox="0 0 680 440" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Waddle's Quest logo</title>
+<desc>A green sword-wielding penguin on an icy emblem under an aurora, with the title Waddle's Quest.</desc>
+<defs>
+<radialGradient id="sky" cx="50%" cy="38%" r="70%">
+<stop offset="0%" stop-color="#1d3a5f"/>
+<stop offset="60%" stop-color="#142a47"/>
+<stop offset="100%" stop-color="#0d1c33"/>
+</radialGradient>
+<linearGradient id="aur" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0%" stop-color="#4be3b0" stop-opacity="0"/>
+<stop offset="50%" stop-color="#4be3b0" stop-opacity="0.85"/>
+<stop offset="100%" stop-color="#7a8cff" stop-opacity="0"/>
+</linearGradient>
+<linearGradient id="aur2" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0%" stop-color="#b06cff" stop-opacity="0"/>
+<stop offset="50%" stop-color="#b06cff" stop-opacity="0.7"/>
+<stop offset="100%" stop-color="#4be3b0" stop-opacity="0"/>
+</linearGradient>
+<clipPath id="badge"><circle cx="340" cy="178" r="150"/></clipPath>
+</defs>
+
+<circle cx="340" cy="178" r="150" fill="url(#sky)" stroke="#0a1626" stroke-width="6"/>
+<g clip-path="url(#badge)">
+<path d="M70 120 Q260 70 470 130 T660 120" fill="none" stroke="url(#aur)" stroke-width="22" stroke-linecap="round"/>
+<path d="M60 165 Q280 110 480 175 T650 160" fill="none" stroke="url(#aur2)" stroke-width="16" stroke-linecap="round"/>
+<g fill="#eaf4ff">
+<circle cx="210" cy="120" r="3"/><circle cx="470" cy="110" r="2.4"/><circle cx="430" cy="170" r="2"/>
+<circle cx="250" cy="200" r="2.2"/><circle cx="180" cy="230" r="2.6"/><circle cx="500" cy="220" r="2.4"/>
+<circle cx="390" cy="100" r="2"/><circle cx="290" cy="90" r="2.2"/>
+</g>
+<ellipse cx="340" cy="330" rx="170" ry="70" fill="#e9f3ff"/>
+<ellipse cx="340" cy="316" rx="120" ry="40" fill="#ffffff" opacity="0.7"/>
+</g>
+
+<g stroke="#14110e" stroke-linejoin="round">
+<ellipse cx="318" cy="300" rx="22" ry="11" fill="#e8911e" stroke-width="3"/>
+<ellipse cx="362" cy="300" rx="22" ry="11" fill="#e8911e" stroke-width="3"/>
+<path d="M398 250 L470 150 L486 162 L416 266 Z" fill="#cfe0f0" stroke-width="3"/>
+<path d="M470 150 L486 162 L478 140 Z" fill="#eef6ff" stroke-width="2"/>
+<rect x="392" y="244" width="30" height="13" rx="3" transform="rotate(-54 407 250)" fill="#b7913f" stroke-width="3"/>
+<path d="M340 96 C290 96 252 138 252 206 C252 270 286 304 340 304 C394 304 428 270 428 206 C428 138 390 96 340 96 Z" fill="#00563b" stroke-width="5"/>
+<path d="M296 300 C296 240 296 198 318 168 C300 150 280 162 274 196 C268 236 274 280 296 300 Z" fill="#00402d" stroke-width="3"/>
+<ellipse cx="334" cy="232" rx="44" ry="66" fill="#dfe6da" stroke="rgba(20,17,14,0.25)" stroke-width="2"/>
+<path d="M286 188 Q340 168 392 190 L388 214 Q340 196 292 212 Z" fill="#c64b4b" stroke-width="3"/>
+<path d="M286 188 L268 226 L284 232 L300 200 Z" fill="#b23f3f" stroke-width="3"/>
+</g>
+<g stroke="#14110e">
+<circle cx="320" cy="172" r="15" fill="#f3efe6" stroke-width="2.5"/>
+<circle cx="360" cy="172" r="15" fill="#f3efe6" stroke-width="2.5"/>
+<circle cx="324" cy="174" r="6.5" fill="#14110e"/>
+<circle cx="356" cy="174" r="6.5" fill="#14110e"/>
+<circle cx="326" cy="171" r="2" fill="#fff" stroke="none"/>
+<circle cx="358" cy="171" r="2" fill="#fff" stroke="none"/>
+<path d="M326 192 L354 192 L340 208 Z" fill="#e8911e" stroke-width="2.5" stroke-linejoin="round"/>
+</g>
+
+<g font-family="'Arial Black','Helvetica Neue',sans-serif" text-anchor="middle">
+<text x="343" y="392" font-size="62" font-weight="900" fill="#0c2236" letter-spacing="1">Waddle's Quest</text>
+<text x="340" y="389" font-size="62" font-weight="900" fill="#eef7ff" letter-spacing="1">Waddle's Quest</text>
+<text x="340" y="389" font-size="62" font-weight="900" fill="none" stroke="#2f5d86" stroke-width="1.2" letter-spacing="1">Waddle's Quest</text>
+</g>
+<g font-family="'Arial Black',sans-serif" text-anchor="middle">
+<text x="340" y="420" font-size="17" font-weight="700" fill="#8fb6d6" letter-spacing="6">A PENGUIN ROGUELITE</text>
+</g>
+</svg>
