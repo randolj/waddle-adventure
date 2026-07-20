@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Waddle's Quest</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="preload" href="assets/fredoka.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="styles.css" />
   <!-- Installable / fullscreen on mobile ("Add to Home Screen" launches with no browser chrome). -->
   <link rel="manifest" href="manifest.webmanifest" />
@@ -21,8 +22,10 @@
   <div id="game-wrap">
     <canvas id="game"></canvas>
     <div id="hint">
-      <strong>WASD</strong> move &nbsp;·&nbsp; <strong>Click</strong> swing &nbsp;·&nbsp; <strong>Space</strong> dash &nbsp;·&nbsp; <strong>I</strong> inventory &nbsp;·&nbsp; <strong>E</strong> interact &nbsp;·&nbsp; <strong>M</strong> map
+      <strong>WASD</strong> move &nbsp;·&nbsp; <strong>Click</strong> swing &nbsp;·&nbsp; <strong>Space</strong> dash &nbsp;·&nbsp; <strong>I</strong> inventory &nbsp;·&nbsp; <strong>E</strong> interact &nbsp;·&nbsp; <strong>M</strong> map &nbsp;·&nbsp; <strong>TAB</strong> exit
     </div>
+    <!-- CrazyGames responsive banner — shown only on non-gameplay screens (menu / pause / game over). -->
+    <div id="banner-container"></div>
   </div>
   <!-- Loading splash — shown until the game (and any portal SDK) is ready, then faded out. -->
   <div id="splash">

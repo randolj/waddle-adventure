@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Waddle's Quest — Thumbnail Concepts (CrazyGames 1920×1080)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0b1020; color: #cdd7ee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  h1 { font-size: 18px; color: #eef7ff; font-weight: 800; }
+  .sub { font-size: 13px; color: #8fb6d6; text-align: center; max-width: 720px; margin-bottom: 10px; }
+  .grid { display: flex; flex-direction: column; gap: 26px; width: 100%; align-items: center; }
+  .card { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .frame { border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; overflow: hidden; box-shadow: 0 12px 44px rgba(0,0,0,0.55); background: #000; }
+  canvas { display: block; width: min(760px, 92vw); height: auto; }
+  .label { font-size: 13px; color: #9fb0c8; display: flex; gap: 12px; align-items: center; }
+  .label b { color: #eef7ff; }
+  button { background: #2f8f5a; color: #fff; border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  button:hover { filter: brightness(1.12); }
+</style>
+</head>
+<body>
+  <h1>Waddle's Quest — Thumbnail Concepts</h1>
+  <p class="sub">Three CTR-engineered 1920×1080 concepts (CrazyGames cover size). Each: one clear focal point, bold readable text, high contrast. Download the one you like — or mix ideas. Test 2 against each other in the dashboard.</p>
+  <div class="grid" id="grid"></div>
+
+<script>
+const W = 1920, H = 1080;
+
+// ---------- shared helpers ----------
+function rng(s){let x=s*997|0;return()=>{x=(x*16807)%2147483647;return(x%1000)/1000;};}
+function snow(ctx,seed,n){const r=rng(seed);ctx.fillStyle='rgba(224,240,255,0.7)';for(let i=0;i<n;i++){ctx.globalAlpha=0.15+r()*0.6;ctx.beginPath();ctx.arc(r()*W,r()*H,1.5+r()*4.5,0,7);ctx.fill();}ctx.globalAlpha=1;}
+function radial(ctx,x,y,r,c0,c1){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c0);g.addColorStop(1,c1);ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+function aurora(ctx,seed){ctx.save();ctx.globalCompositeOperation='lighter';const bands=[['rgba(75,227,176,0.16)',0.26,0.09],['rgba(176,108,255,0.12)',0.40,0.07],['rgba(120,200,255,0.11)',0.18,0.05]];for(const[col,yo,amp]of bands){ctx.strokeStyle=col;ctx.lineWidth=H*0.06;ctx.beginPath();for(let i=0;i<=48;i++){const x=i/48*W,y=H*yo+Math.sin(i*0.42+seed)*H*amp;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}ctx.restore();}
+
+// Bold outlined wordmark, auto-fit to a max width.
+function word(ctx,text,x,y,size,maxW,fill,stroke){
+  ctx.font=`900 ${size}px 'Arial Black', Impact, -apple-system, sans-serif`;
+  let m=ctx.measureText(text).width;
+  if(m>maxW){size=size*maxW/m;ctx.font=`900 ${size}px 'Arial Black', Impact, -apple-system, sans-serif`;}
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';
+  ctx.lineWidth=size*0.16;ctx.strokeStyle=stroke;ctx.strokeText(text,x,y);
+  ctx.fillStyle=fill;ctx.fillText(text,x,y);
+  return size;
+}
+function tag(ctx,text,x,y,size,color){
+  ctx.font=`800 ${size}px -apple-system, sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+  const pad=size*0.9, w=ctx.measureText(text).width+pad*2, h=size*2.1;
+  ctx.fillStyle='rgba(8,14,26,0.72)';rr(ctx,x-w/2,y-h/2,w,h,h/2);ctx.fill();
+  ctx.strokeStyle=color;ctx.lineWidth=size*0.14;rr(ctx,x-w/2,y-h/2,w,h,h/2);ctx.stroke();
+  ctx.fillStyle=color;ctx.fillText(text,x,y);
+}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+// ---------- penguin hero (expressive; pose: 'sword' | 'brave' | 'cheer') ----------
+function penguin(c,x,y,s,opt={}){
+  const pose=opt.pose||'sword', glow=opt.glow!==false;
+  c.save();c.translate(x,y);c.lineJoin='round';c.strokeStyle='#14110e';
+  // ground disc
+  if(opt.disc!==false){c.fillStyle='rgba(233,243,255,0.9)';c.beginPath();c.ellipse(0,s*1.12,s*1.35,s*0.34,0,0,7);c.fill();}
+  // feet
+  c.fillStyle='#d9821c';c.lineWidth=s*0.05;
+  for(const fx of[-s*0.42,s*0.42]){c.beginPath();c.ellipse(fx,s*1.02,s*0.34,s*0.18,0,0,7);c.fill();c.stroke();}
+  // body (Drifter green)
+  c.fillStyle='#2f5d4a';c.lineWidth=s*0.075;
+  c.beginPath();c.ellipse(0,0,s*0.8,s,0,0,7);c.fill();c.stroke();
+  // belly
+  c.fillStyle='#e6f2ea';c.beginPath();c.ellipse(0,s*0.26,s*0.48,s*0.6,0,0,7);c.fill();
+  // scarf around the neck (band + hanging tail)
+  c.fillStyle='#d86a5a';c.strokeStyle='#14110e';c.lineWidth=s*0.04;
+  c.beginPath();c.ellipse(0,-s*0.12,s*0.6,s*0.2,0,0,Math.PI);c.fill();c.stroke();
+  c.fillStyle='#c15646';c.beginPath();c.moveTo(s*0.24,-s*0.06);c.lineTo(s*0.44,s*0.5);c.lineTo(s*0.2,s*0.44);c.closePath();c.fill();c.stroke();
+  c.strokeStyle='#14110e';
+  // eyes (big, forward-facing — cute, not cross-eyed)
+  c.fillStyle='#f6f2e8';c.beginPath();c.arc(-s*0.27,-s*0.5,s*0.2,0,7);c.arc(s*0.27,-s*0.5,s*0.2,0,7);c.fill();
+  c.fillStyle='#14110e';c.beginPath();c.arc(-s*0.27,-s*0.47,s*0.11,0,7);c.arc(s*0.27,-s*0.47,s*0.11,0,7);c.fill();
+  c.fillStyle='#fff';c.beginPath();c.arc(-s*0.31,-s*0.51,s*0.04,0,7);c.arc(s*0.23,-s*0.51,s*0.04,0,7);c.fill();
+  // brows: determined (angled down) or happy (raised arcs)
+  c.strokeStyle='#1a1512';c.lineWidth=s*0.07;c.lineCap='round';
+  if(opt.happy){
+    c.beginPath();c.arc(-s*0.27,-s*0.66,s*0.16,0.5,2.0);c.arc(s*0.27,-s*0.66,s*0.16,1.14,2.64);c.stroke();
+  } else if(opt.brow){
+    c.beginPath();c.moveTo(-s*0.46,-s*0.78);c.lineTo(-s*0.12,-s*0.62);c.moveTo(s*0.46,-s*0.78);c.lineTo(s*0.12,-s*0.62);c.stroke();
+  }
+  c.lineCap='butt';c.strokeStyle='#14110e';
+  // beak — open happy 'v' or closed triangle
+  c.fillStyle='#f0a02a';c.lineWidth=s*0.04;
+  if(opt.happy){
+    c.beginPath();c.moveTo(-s*0.17,-s*0.28);c.lineTo(s*0.17,-s*0.28);c.lineTo(0,-s*0.02);c.closePath();c.fill();c.stroke();
+    c.fillStyle='#8a2f1e';c.beginPath();c.moveTo(-s*0.1,-s*0.18);c.lineTo(s*0.1,-s*0.18);c.lineTo(0,-s*0.05);c.closePath();c.fill();
+  } else {
+    c.beginPath();c.moveTo(-s*0.17,-s*0.3);c.lineTo(s*0.17,-s*0.3);c.lineTo(0,-s*0.1);c.closePath();c.fill();c.stroke();
+  }
+  // cheek blush (cute)
+  c.fillStyle='rgba(255,140,120,0.35)';c.beginPath();c.arc(-s*0.5,-s*0.28,s*0.13,0,7);c.arc(s*0.5,-s*0.28,s*0.13,0,7);c.fill();
+  // pose-specific weapon
+  if(pose==='sword'){
+    c.save();c.translate(s*0.66,-s*0.05);c.rotate(-0.7);
+    if(glow){c.shadowColor='#bfe8ff';c.shadowBlur=s*0.6;}
+    c.fillStyle='#dff1ff';c.strokeStyle='#14110e';c.lineWidth=s*0.045;
+    c.beginPath();c.moveTo(-s*0.09,0);c.lineTo(-s*0.09,-s*0.95);c.lineTo(0,-s*1.5);c.lineTo(s*0.09,-s*0.95);c.lineTo(s*0.09,0);c.closePath();c.fill();c.stroke();
+    c.shadowBlur=0;c.fillStyle='#c9a24a';c.fillRect(-s*0.24,-s*0.02,s*0.48,s*0.14);c.strokeRect(-s*0.24,-s*0.02,s*0.48,s*0.14);
+    c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=s*0.02;c.beginPath();c.moveTo(0,-s*0.12);c.lineTo(0,-s*1.4);c.stroke();
+    c.restore();
+  } else if(pose==='brave'){
+    // small raised dagger
+    c.save();c.translate(s*0.7,s*0.05);c.rotate(-0.4);
+    if(glow){c.shadowColor='#bfe8ff';c.shadowBlur=s*0.4;}
+    c.fillStyle='#dff1ff';c.strokeStyle='#14110e';c.lineWidth=s*0.05;
+    c.beginPath();c.moveTo(-s*0.05,-s*0.7);c.lineTo(s*0.05,-s*0.7);c.lineTo(s*0.07,0);c.lineTo(-s*0.07,0);c.closePath();c.fill();c.stroke();
+    c.restore();
+  }
+  c.restore();
+}
+
+// spiky enemy blob (danger accent)
+function foe(c,x,y,s,col,eyes=2){
+  c.save();c.translate(x,y);
+  c.fillStyle='rgba(15,18,30,0.35)';c.beginPath();c.ellipse(0,s*0.7,s*0.9,s*0.28,0,0,7);c.fill();
+  c.fillStyle=col;c.strokeStyle='#14110e';c.lineWidth=s*0.08;c.lineJoin='round';
+  c.beginPath();const N=11;for(let i=0;i<=N;i++){const a=i/N*7,rr=(i%2?1:0.7)*s;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.closePath();c.fill();c.stroke();
+  c.fillStyle='#fff';for(let i=0;i<eyes;i++){const ex=(eyes===1?0:(i?1:-1))*s*0.28;c.beginPath();c.arc(ex,-s*0.08,s*0.16,0,7);c.fill();}
+  c.fillStyle='#14110e';for(let i=0;i<eyes;i++){const ex=(eyes===1?0:(i?1:-1))*s*0.28;c.beginPath();c.arc(ex,-s*0.08,s*0.08,0,7);c.fill();}
+  c.restore();
+}
+
+// floating loot weapon icon
+function loot(c,x,y,s,kind,glowc){
+  c.save();c.translate(x,y);c.shadowColor=glowc;c.shadowBlur=s*0.9;c.lineJoin='round';c.strokeStyle='#14110e';c.lineWidth=s*0.09;
+  if(kind==='sword'){c.fillStyle='#dff1ff';c.beginPath();c.moveTo(-s*0.12,-s);c.lineTo(s*0.12,-s);c.lineTo(s*0.16,s*0.4);c.lineTo(-s*0.16,s*0.4);c.closePath();c.fill();c.stroke();c.shadowBlur=0;c.fillStyle='#c9a24a';c.fillRect(-s*0.4,s*0.4,s*0.8,s*0.22);c.strokeRect(-s*0.4,s*0.4,s*0.8,s*0.22);}
+  else if(kind==='bow'){c.rotate(-0.5);c.shadowColor=glowc;c.strokeStyle='#8fd0a0';c.lineWidth=s*0.14;c.lineCap='round';c.beginPath();c.arc(-s*0.3,0,s*1.05,-1.15,1.15);c.stroke();c.shadowBlur=0;c.strokeStyle='#cfe0f0';c.lineWidth=s*0.04;c.beginPath();c.moveTo(s*0.62,-s*0.86);c.lineTo(s*0.62,s*0.86);c.stroke();c.strokeStyle='#e9eef6';c.lineWidth=s*0.06;c.beginPath();c.moveTo(-s*0.5,0);c.lineTo(s*0.62,0);c.stroke();c.fillStyle='#e9eef6';c.beginPath();c.moveTo(s*0.62,0);c.lineTo(s*0.42,-s*0.14);c.lineTo(s*0.42,s*0.14);c.closePath();c.fill();c.lineCap='butt';}
+  else if(kind==='gem'){c.fillStyle=glowc;c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.7,-s*0.2);c.lineTo(0,s);c.lineTo(-s*0.7,-s*0.2);c.closePath();c.fill();c.stroke();}
+  else if(kind==='coin'){c.fillStyle='#ffd166';c.beginPath();c.arc(0,0,s*0.7,0,7);c.fill();c.stroke();c.shadowBlur=0;c.fillStyle='#caa22a';c.font=`900 ${s*0.9}px Arial`;c.textAlign='center';c.textBaseline='middle';c.fillText('◈',0,s*0.02);}
+  c.restore();
+}
+
+// ---------- CONCEPT 1 — "Hero" (cute + action, character-forward) ----------
+function hero(ctx){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#12356b');g.addColorStop(0.55,'#1b4f86');g.addColorStop(1,'#0c1e30');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  aurora(ctx,2);snow(ctx,7,150);
+  // hero glow + hero, right of center
+  const hx=W*0.66,hy=H*0.56,s=H*0.34;
+  radial(ctx,hx,hy-H*0.05,s*3,'rgba(127,210,255,0.30)','rgba(127,210,255,0)');
+  // two small foes at the base for action context
+  foe(ctx,W*0.5,H*0.84,H*0.075,'#6f8a4a',2);
+  foe(ctx,W*0.86,H*0.82,H*0.09,'#8a5a3a',2);
+  penguin(ctx,hx,hy,s,{pose:'sword',brow:true});
+  // text block, left
+  const cx=W*0.31;
+  word(ctx,"WADDLE'S",cx,H*0.4,H*0.2,W*0.56,'#f4faff','#0a1f36');
+  word(ctx,"QUEST",cx,H*0.6,H*0.24,W*0.5,'#ffd166','#5a3a0a');
+  tag(ctx,'⚔  PENGUIN ROGUELITE',cx,H*0.78,H*0.05,'#7fe0c0');
+}
+
+// ---------- CONCEPT 2 — "Loot" (the roguelite chase) ----------
+function lootScene(ctx){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#241a3a');g.addColorStop(0.5,'#3a2a52');g.addColorStop(1,'#160f24');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // warm treasure light beam from center
+  radial(ctx,W*0.5,H*0.46,H*0.9,'rgba(255,196,90,0.34)','rgba(255,196,90,0)');
+  snow(ctx,4,90);
+  // burst of loot
+  const cx=W*0.5,cy=H*0.42;
+  loot(ctx,cx-W*0.2,cy-H*0.08,H*0.11,'sword','#bfe8ff');
+  loot(ctx,cx+W*0.19,cy-H*0.05,H*0.1,'bow','#7fe0c0');
+  loot(ctx,cx-W*0.11,cy-H*0.2,H*0.06,'gem','#d98fff');
+  loot(ctx,cx+W*0.1,cy-H*0.19,H*0.06,'gem','#7fd2ff');
+  loot(ctx,cx-W*0.02,cy-H*0.24,H*0.05,'coin','#ffd166');
+  loot(ctx,cx+W*0.02,cy-H*0.12,H*0.045,'coin','#ffd166');
+  // treasure chest
+  const chx=cx,chy=H*0.56,cs=H*0.16;
+  ctx.save();ctx.translate(chx,chy);ctx.lineJoin='round';ctx.strokeStyle='#2a1c0e';ctx.lineWidth=cs*0.09;
+  ctx.fillStyle='rgba(10,8,16,0.4)';ctx.beginPath();ctx.ellipse(0,cs*0.95,cs*1.5,cs*0.4,0,0,7);ctx.fill();
+  ctx.fillStyle='#7a5230';ctx.fillRect(-cs*1.2,-cs*0.2,cs*2.4,cs*1.2);ctx.strokeRect(-cs*1.2,-cs*0.2,cs*2.4,cs*1.2);
+  ctx.fillStyle='#8a6038';ctx.beginPath();ctx.moveTo(-cs*1.2,-cs*0.2);ctx.lineTo(-cs*1.35,-cs*1.3);ctx.lineTo(cs*1.05,-cs*1.3);ctx.lineTo(cs*1.2,-cs*0.2);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.shadowColor='#ffd166';ctx.shadowBlur=cs*0.9;ctx.strokeStyle='#ffd166';ctx.lineWidth=cs*0.1;ctx.beginPath();ctx.moveTo(-cs*1.2,-cs*0.2);ctx.lineTo(cs*1.2,-cs*0.2);ctx.stroke();ctx.shadowBlur=0;
+  ctx.restore();
+  // small penguin, excited about the loot, left
+  penguin(ctx,W*0.2,H*0.66,H*0.2,{pose:'cheer',happy:true,disc:true});
+  // text bottom
+  word(ctx,'DIVE FOR LOOT',W*0.5,H*0.86,H*0.16,W*0.86,'#ffe08a','#3a2405');
+  tag(ctx,'ROGUELITE DUNGEON CRAWLER',W*0.5,H*0.975,H*0.042,'#bfa0ff');
+}
+
+// looming frost boss (menacing spiky ice blob, glowing angry eyes, jagged frown).
+// opt: {body, ink, eye} recolors it (default = icy blue).
+function bossBlob(c,bx,by,bs,opt){
+  const body=(opt&&opt.body)||'#3d6f9e',ink=(opt&&opt.ink)||'#081524',eye=(opt&&opt.eye)||'#ff4a3a';
+  c.save();c.translate(bx,by);c.lineJoin='round';
+  c.fillStyle=body;c.strokeStyle=ink;c.lineWidth=bs*0.06;
+  const N=24;c.beginPath();for(let i=0;i<=N;i++){const a=i/N*7-1.57,rr=(i%2?1.12:0.68)*bs;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.closePath();c.fill();c.stroke();
+  c.save();c.beginPath();for(let i=0;i<=N;i++){const a=i/N*7-1.57,rr=(i%2?1.12:0.68)*bs;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.clip();
+  c.fillStyle='rgba(6,16,30,0.5)';c.beginPath();c.ellipse(0,bs*0.5,bs*1.4,bs*1.1,0,0,7);c.fill();
+  c.fillStyle='rgba(214,236,255,0.32)';c.beginPath();c.ellipse(-bs*0.3,-bs*0.35,bs*0.5,bs*0.4,0,0,7);c.fill();
+  c.restore();
+  c.shadowColor=eye;c.shadowBlur=bs*0.7;c.fillStyle=eye;
+  c.beginPath();c.ellipse(-bs*0.3,-bs*0.05,bs*0.17,bs*0.11,0.5,0,7);c.ellipse(bs*0.3,-bs*0.05,bs*0.17,bs*0.11,-0.5,0,7);c.fill();
+  c.shadowBlur=0;c.fillStyle='#2a0806';
+  c.beginPath();c.arc(-bs*0.3,-bs*0.03,bs*0.06,0,7);c.arc(bs*0.3,-bs*0.03,bs*0.06,0,7);c.fill();
+  c.strokeStyle=ink;c.lineWidth=bs*0.05;c.lineJoin='miter';
+  c.beginPath();for(let i=0;i<=6;i++){const x=(-0.4+i*0.135)*bs,y=(bs*0.3)+(i%2?bs*0.06:0);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();
+  c.restore();
+}
+// bright crescent slash + a sharp impact star flash (combat energy)
+function slashArc(c,x,y,r,rot,col){
+  c.save();c.translate(x,y);c.rotate(rot);c.globalCompositeOperation='lighter';
+  c.shadowColor=col;c.shadowBlur=r*0.4;c.fillStyle=col;
+  c.beginPath();c.arc(0,0,r,-1.0,1.0);c.arc(0,0,r*0.7,1.0,-1.0,true);c.closePath();c.fill();
+  // a couple of trailing sparks off the tip
+  c.beginPath();c.arc(0,-r*1.02,r*0.06,0,7);c.arc(0,r*1.02,r*0.05,0,7);c.fill();
+  c.restore();
+}
+function impactFlash(c,x,y,s,col){
+  c.save();c.translate(x,y);c.globalCompositeOperation='lighter';c.fillStyle=col;c.shadowColor=col;c.shadowBlur=s*0.7;
+  for(const rot of[0,Math.PI/4]){c.save();c.rotate(rot);c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.15,0);c.lineTo(0,s);c.lineTo(-s*0.15,0);c.closePath();c.fill();c.restore();}
+  c.fillStyle='#ffffff';c.beginPath();c.arc(0,0,s*0.26,0,7);c.fill();
+  c.restore();
+}
+// loot with a motion-blur streak trailing back toward its origin (ox,oy)
+function lootFly(c,x,y,s,kind,glowc,ox,oy){
+  const dx=x-ox,dy=y-oy,len=Math.max(1,Math.hypot(dx,dy)),ux=dx/len,uy=dy/len,tl=s*4.5;
+  c.save();c.globalCompositeOperation='lighter';
+  const g=c.createLinearGradient(x,y,x-ux*tl,y-uy*tl);g.addColorStop(0,glowc);g.addColorStop(1,'rgba(255,255,255,0)');
+  c.strokeStyle=g;c.lineWidth=s*0.85;c.lineCap='round';c.beginPath();c.moveTo(x,y);c.lineTo(x-ux*tl,y-uy*tl);c.stroke();
+  c.restore();
+  loot(c,x,y,s,kind,glowc);
+}
+// treasure chest (open = glowing gold interior + light)
+function chest(c,x,y,s,open){
+  c.save();c.translate(x,y);c.lineJoin='round';c.strokeStyle='#2a1c0e';c.lineWidth=s*0.09;
+  c.fillStyle='rgba(8,6,14,0.5)';c.beginPath();c.ellipse(0,s*1.05,s*1.65,s*0.42,0,0,7);c.fill();
+  if(open){ // upward gold light beam behind the chest
+    c.save();c.globalCompositeOperation='lighter';const bg=c.createLinearGradient(0,-s*2.4,0,0);bg.addColorStop(0,'rgba(255,205,100,0)');bg.addColorStop(1,'rgba(255,205,100,0.5)');c.fillStyle=bg;c.beginPath();c.moveTo(-s*0.5,0);c.lineTo(-s*1.3,-s*2.4);c.lineTo(s*1.3,-s*2.4);c.lineTo(s*0.5,0);c.closePath();c.fill();c.restore();
+  }
+  c.fillStyle='#7a5230';c.fillRect(-s*1.2,-s*0.1,s*2.4,s*1.15);c.strokeRect(-s*1.2,-s*0.1,s*2.4,s*1.15);
+  if(open){
+    c.fillStyle='#8a6038';c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.lineTo(-s*1.42,-s*1.2);c.lineTo(s*1.0,-s*1.2);c.lineTo(s*1.2,-s*0.1);c.closePath();c.fill();c.stroke();
+    c.save();c.shadowColor='#ffd166';c.shadowBlur=s*1.1;c.fillStyle='#ffe08a';c.fillRect(-s*1.05,-s*0.06,s*2.1,s*0.4);c.restore();
+    c.fillStyle='#ffd166';for(const gx of[-s*0.55,0,s*0.55]){c.beginPath();c.arc(gx,s*0.06,s*0.17,0,7);c.fill();}
+  } else {
+    c.fillStyle='#8a6038';c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.quadraticCurveTo(0,-s*1.2,s*1.2,-s*0.1);c.closePath();c.fill();c.stroke();
+  }
+  c.shadowColor='#ffd166';c.shadowBlur=s*0.7;c.strokeStyle='#ffd166';c.lineWidth=s*0.1;c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.lineTo(s*1.2,-s*0.1);c.stroke();c.shadowBlur=0;
+  c.restore();
+}
+
+// angled wind-driven snow streaks (motion, not static dots)
+function windStreaks(c,seed,n,ang){
+  const r=rng(seed);c.save();c.strokeStyle='#d6ecff';c.lineCap='round';
+  const dx=Math.cos(ang),dy=Math.sin(ang);
+  for(let i=0;i<n;i++){const x=r()*W,y=r()*H,l=8+r()*30;c.globalAlpha=0.08+r()*0.42;c.lineWidth=0.8+r()*1.8;c.beginPath();c.moveTo(x,y);c.lineTo(x+dx*l,y+dy*l);c.stroke();}
+  c.restore();c.globalAlpha=1;
+}
+// smooth glowing ice shockwave ring (gentle lobed wobble, soft aura)
+function shockRing(c,x,y,rad,col,alpha){
+  c.save();c.globalAlpha=alpha;c.strokeStyle=col;c.lineWidth=Math.max(3,rad*0.028);c.lineJoin='round';
+  c.shadowColor=col;c.shadowBlur=rad*0.16;
+  c.beginPath();const N=72;for(let i=0;i<=N;i++){const a=i/N*Math.PI*2,rr=rad*(1+Math.sin(a*9)*0.028);i?c.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr):c.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}c.closePath();c.stroke();
+  c.restore();c.globalAlpha=1;
+}
+// upward volumetric light beam + thin rays from the treasure (warm key light)
+function godBeam(c,x,y,h,color){
+  c.save();c.globalCompositeOperation='lighter';
+  const g=c.createLinearGradient(x,y,x,y-h);g.addColorStop(0,color);g.addColorStop(1,'rgba(255,205,100,0)');
+  c.fillStyle=g;c.beginPath();c.moveTo(x-h*0.05,y);c.lineTo(x-h*0.26,y-h);c.lineTo(x+h*0.26,y-h);c.lineTo(x+h*0.05,y);c.closePath();c.fill();
+  for(const a of[-0.42,-0.16,0.16,0.42]){const rg=c.createLinearGradient(x,y,x+Math.sin(a)*h,y-Math.cos(a)*h);rg.addColorStop(0,'rgba(255,226,150,0.45)');rg.addColorStop(1,'rgba(255,205,100,0)');c.strokeStyle=rg;c.lineWidth=h*0.02;c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.sin(a)*h,y-Math.cos(a)*h);c.stroke();}
+  c.restore();
+}
+// foreground out-of-focus ice shard (depth framing)
+function fgShard(c,x,y,s,rot,col){
+  c.save();c.translate(x,y);c.rotate(rot);c.globalAlpha=0.55;c.fillStyle=col;c.strokeStyle='rgba(8,16,30,0.7)';c.lineWidth=s*0.06;c.lineJoin='round';
+  c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.5,-s*0.1);c.lineTo(s*0.2,s);c.lineTo(-s*0.4,s*0.2);c.closePath();c.fill();c.stroke();
+  c.globalAlpha=0.2;c.fillStyle='#eaf6ff';c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.5,-s*0.1);c.lineTo(0,-s*0.2);c.closePath();c.fill();
+  c.restore();c.globalAlpha=1;
+}
+// hero mid-lunge: speed streaks + fading after-images + a rotated, back-lit penguin
+function heroLunge(c,x,y,s,ang){
+  c.save();c.globalCompositeOperation='lighter'; // motion streaks trailing from lower-left
+  for(let i=0;i<6;i++){const o=(i-2.5)*s*0.32;c.strokeStyle='rgba(140,215,255,0.10)';c.lineWidth=s*0.06;c.beginPath();c.moveTo(x-s*3.1+o,y+s*1.7+o);c.lineTo(x-s*0.5+o,y+o*0.35);c.stroke();}
+  c.restore();
+  for(const gh of[[-s*1.9,s*1.08,0.16],[-s*1.0,s*0.55,0.28]]){ // crisp cyan dash echoes
+    c.save();c.translate(x+gh[0],y+gh[1]);c.rotate(ang);c.globalAlpha=gh[2];
+    c.fillStyle='#79cfff';c.beginPath();c.ellipse(0,0,s*0.78,s,0,0,7);c.fill();
+    c.restore();c.globalAlpha=1;
+  }
+  const gl=c.createRadialGradient(x,y,0,x,y,s*2.3);gl.addColorStop(0,'rgba(120,200,255,0.30)');gl.addColorStop(1,'rgba(120,200,255,0)');c.fillStyle=gl;c.fillRect(x-s*2.5,y-s*2.5,s*5,s*5);
+  c.save();c.translate(x,y);c.rotate(ang);penguin(c,0,0,s,{pose:'sword',brow:true,disc:false});c.restore();
+}
+
+// ---------- CONCEPT 3 — "Boss + Treasure" (cinematic: lunge → boss, warm loot, title) ----------
+function bossScene(ctx){
+  // deep cold sky, light biased to the upper-right (the boss)
+  const g=ctx.createRadialGradient(W*0.66,H*0.26,H*0.06,W*0.5,H*0.56,H*1.18);
+  g.addColorStop(0,'#255288');g.addColorStop(0.55,'#12294c');g.addColorStop(1,'#060a14');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  aurora(ctx,5);
+  // BOSS upper-right, mid-attack: glow + two icy shockwave rings + the menace blob
+  const bx=W*0.68,by=H*0.26,bs=H*0.2;
+  radial(ctx,bx,by,bs*3,'rgba(120,180,255,0.30)','rgba(120,180,255,0)');
+  shockRing(ctx,bx,by,bs*1.55,'#a8daff',0.55);
+  shockRing(ctx,bx,by,bs*2.05,'#a8daff',0.24);
+  bossBlob(ctx,bx,by,bs);
+  windStreaks(ctx,7,150,Math.PI*0.8); // snow blowing down-left off the boss
+  // TREASURE foreground-center: upward warm beam + arcing loot spray + chest
+  const cxx=W*0.58,cyy=H*0.73;
+  radial(ctx,cxx,cyy-H*0.06,H*0.4,'rgba(255,190,80,0.3)','rgba(255,190,80,0)');
+  godBeam(ctx,cxx,cyy-H*0.04,H*0.46,'rgba(255,200,90,0.42)');
+  loot(ctx,cxx-W*0.05,cyy-H*0.2,H*0.044,'gem','#7fd2ff');
+  loot(ctx,cxx+W*0.06,cyy-H*0.22,H*0.05,'gem','#d98fff');
+  loot(ctx,cxx-W*0.005,cyy-H*0.3,H*0.036,'coin','#ffd166');
+  loot(ctx,cxx+W*0.11,cyy-H*0.11,H*0.032,'coin','#ffd166');
+  chest(ctx,cxx,cyy,H*0.1,true);
+  // HERO lunging up-right toward the boss from lower-left — the line of action
+  heroLunge(ctx,W*0.3,H*0.6,H*0.135,-0.42);
+  // legibility vignette + foreground depth shards framing the corners
+  const vg=ctx.createLinearGradient(0,H*0.52,0,H);vg.addColorStop(0,'rgba(6,10,20,0)');vg.addColorStop(1,'rgba(6,10,20,0.92)');ctx.fillStyle=vg;ctx.fillRect(0,H*0.52,W,H*0.48);
+  fgShard(ctx,W*0.06,H*0.92,H*0.17,-0.3,'#3a6f9e');
+  fgShard(ctx,W*0.95,H*0.88,H*0.22,0.42,'#2f5f8a');
+  // TITLE + hook
+  word(ctx,"WADDLE'S QUEST",W*0.5,H*0.9,H*0.15,W*0.92,'#eef7ff','#0a1a2e');
+  tag(ctx,'⚔  SLAY THE HEART OF WINTER',W*0.5,H*0.975,H*0.038,'#8fd0ff');
+}
+
+// ---------- CONCEPT 4 — "Epic" (huge cropped boss, slash impact, airborne hero, flying loot, clean title) ----------
+function bossMaxScene(ctx){
+  // moody icy-violet sky
+  const g=ctx.createRadialGradient(W*0.52,H*0.16,H*0.06,W*0.5,H*0.6,H*1.2);
+  g.addColorStop(0,'#3a2f78');g.addColorStop(0.5,'#1a1740');g.addColorStop(1,'#080614');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // purple/teal aurora
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  for(const[col,yo,amp]of[['rgba(150,90,230,0.16)',0.22,0.08],['rgba(90,200,220,0.12)',0.34,0.06],['rgba(120,120,255,0.10)',0.14,0.05]]){ctx.strokeStyle=col;ctx.lineWidth=H*0.07;ctx.beginPath();for(let i=0;i<=48;i++){const x=i/48*W,y=H*yo+Math.sin(i*0.4+3)*H*amp;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}ctx.restore();
+  // HUGE boss cropped by the top edge (icy-violet), menacing face visible below
+  const bx=W*0.55,by=H*0.12,bs=H*0.31;
+  radial(ctx,bx,by+bs*0.35,bs*2.4,'rgba(150,110,240,0.34)','rgba(150,110,240,0)');
+  bossBlob(ctx,bx,by,bs,{body:'#6f57b8',ink:'#160a2c',eye:'#ff5545'});
+  windStreaks(ctx,11,150,Math.PI*0.82);
+  // TREASURE lower-right: warm beam + chest + motion-blurred loot arcing up-left
+  const cxx=W*0.77,cyy=H*0.72;
+  radial(ctx,cxx,cyy-H*0.05,H*0.34,'rgba(255,190,80,0.3)','rgba(255,190,80,0)');
+  godBeam(ctx,cxx,cyy-H*0.04,H*0.38,'rgba(255,200,90,0.4)');
+  lootFly(ctx,cxx-W*0.09,cyy-H*0.24,H*0.045,'gem','#7fd2ff',cxx,cyy);
+  lootFly(ctx,cxx-W*0.03,cyy-H*0.31,H*0.05,'gem','#d98fff',cxx,cyy);
+  lootFly(ctx,cxx-W*0.14,cyy-H*0.15,H*0.036,'coin','#ffd166',cxx,cyy);
+  lootFly(ctx,cxx+W*0.02,cyy-H*0.2,H*0.03,'coin','#ffd166',cxx,cyy);
+  chest(ctx,cxx,cyy,H*0.093,true);
+  // HERO fully airborne lower-left, steep lunge; SLASH arc + impact flash on the diagonal
+  heroLunge(ctx,W*0.26,H*0.58,H*0.13,-0.6);
+  slashArc(ctx,W*0.43,H*0.45,H*0.17,-0.7,'rgba(185,238,255,0.92)');
+  impactFlash(ctx,W*0.5,H*0.37,H*0.09,'#e6f5ff');
+  // vignette + a single foreground shard for depth
+  const vg=ctx.createLinearGradient(0,H*0.5,0,H);vg.addColorStop(0,'rgba(6,8,18,0)');vg.addColorStop(1,'rgba(6,8,18,0.92)');ctx.fillStyle=vg;ctx.fillRect(0,H*0.5,W,H*0.5);
+  fgShard(ctx,W*0.95,H*0.9,H*0.2,0.4,'#4a3f88');
+  // CLEAN title — no boxed tag, just the wordmark + an understated genre line
+  word(ctx,"WADDLE'S QUEST",W*0.5,H*0.9,H*0.155,W*0.92,'#f4f7ff','#0a1226');
+  ctx.font=`800 ${Math.round(H*0.028)}px -apple-system, sans-serif`;ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillStyle='rgba(205,185,255,0.92)';
+  ctx.fillText('A   P E N G U I N   R O G U E L I T E',W*0.5,H*0.965);ctx.textAlign='left';
+}
+
+// ---------- render ----------
+const CONCEPTS=[
+  {id:'hero',name:'① “Hero” — cute + action',hook:'Character-forward, most inviting. Safest CTR bet.',fn:hero},
+  {id:'loot',name:'② “Loot” — the roguelite chase',hook:'Sells the loot compulsion loop (Destiny-lite).',fn:lootScene},
+  {id:'boss',name:'③ “Boss + Treasure” — stakes, reward & the title',hook:'The refined pick: cold boss drama + warm loot + the game name.',fn:bossScene},
+  {id:'epic',name:'④ “Epic” — everything cranked',hook:'Huge cropped icy-violet boss, a slash on impact, airborne hero, motion-blurred loot, clean title.',fn:bossMaxScene},
+];
+const grid=document.getElementById('grid');
+for(const c of CONCEPTS){
+  const card=document.createElement('div');card.className='card';
+  const frame=document.createElement('div');frame.className='frame';
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;frame.appendChild(cv);
+  c.fn(cv.getContext('2d'));
+  const label=document.createElement('div');label.className='label';
+  const info=document.createElement('span');info.innerHTML=`<b>${c.name}</b> — ${c.hook}`;
+  const btn=document.createElement('button');btn.textContent='⬇ Download 1920×1080';
+  btn.onclick=()=>cv.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`waddles-thumb-${c.id}-1920x1080.png`;a.click();URL.revokeObjectURL(a.href);},'image/png');
+  label.append(info,btn);
+  card.append(frame,label);grid.appendChild(card);
+}
+</script>
+</body>
+</html>

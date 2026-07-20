@@ -96,7 +96,7 @@ export class Fx {
       const a = Math.min(1, f.life / 0.4);
       ctx.save();
       ctx.globalAlpha = a;
-      ctx.font = `700 ${f.size}px -apple-system, sans-serif`;
+      ctx.font = `700 ${f.size}px Fredoka, -apple-system, sans-serif`;
       ctx.lineWidth = 3;
       ctx.strokeStyle = "rgba(10,8,16,0.8)";
       ctx.strokeText(f.text, f.x, f.y);

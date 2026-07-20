@@ -10,6 +10,7 @@ import { depthColor, dungeonConfig, FINAL_DEPTH } from "./dungeon.js";
 import { WEAPON_TYPE_NAMES, RARITIES, RARITY_ORDER, recommendedPower, itemPower } from "./items.js";
 import { getShards, getCores, shardsForRun, hasWon, getDeepest } from "./meta.js";
 import { drawItemIcon, slotTint, slotTag, withAlpha, clipText } from "./inventory.js";
+import { POI_TYPES } from "./poi.js";
 
 const CLASS_HUD_COLOR = { drifter: "#5be3a0", warden: "#e0a64b", auralist: "#7fb0ff" };
 
@@ -133,7 +134,7 @@ export function drawCombo(view) {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `700 ${Math.round(22 * scale)}px -apple-system, sans-serif`;
+  ctx.font = `700 ${Math.round(22 * scale)}px Fredoka, -apple-system, sans-serif`;
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(10,8,16,0.7)";
   ctx.strokeText(`${combo}× COMBO`, x, y);
@@ -169,7 +170,7 @@ export function drawPortals(view) {
     ctx.arc(0, 0, p.r * 0.66, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = "#bff0ff";
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(p.label, 0, -p.r - 8);
     ctx.textAlign = "left";
@@ -236,9 +237,9 @@ export function drawPickups(view) {
       // Floating name + power label so dropped gear can't be missed.
       const nm = it.name;
       const pw = "⚡" + itemPower(it);
-      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       const nmW = ctx.measureText(nm).width;
-      ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       const pwW = ctx.measureText(pw).width;
       const totalW = nmW + 8 + pwW;
       const ly = -24;
@@ -251,10 +252,10 @@ export function drawPickups(view) {
       ctx.stroke();
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.fillStyle = col;
       ctx.fillText(nm, -totalW / 2, ly);
-      ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.fillStyle = "#ffd27a";
       ctx.fillText(pw, -totalW / 2 + nmW + 8, ly);
       ctx.textBaseline = "alphabetic";
@@ -267,7 +268,7 @@ export function drawPickups(view) {
 export function drawPrompt(view, text, color) {
   const { ctx, w, h } = view;
   ctx.textAlign = "center";
-  ctx.font = "600 16px -apple-system, sans-serif";
+  ctx.font = "600 16px Fredoka, -apple-system, sans-serif";
   const tw = ctx.measureText(text).width;
   ctx.fillStyle = "rgba(10,12,20,0.7)";
   roundRect(ctx, w / 2 - tw / 2 - 16, h - 92, tw + 32, 34, 8);
@@ -296,7 +297,7 @@ export function drawEntranceTooltip(view, dg) {
   ];
   let bw = 0;
   for (const [t, , f] of lines) {
-    ctx.font = `${f} -apple-system, sans-serif`;
+    ctx.font = `${f} Fredoka, -apple-system, sans-serif`;
     bw = Math.max(bw, ctx.measureText(t).width);
   }
   bw += 24;
@@ -316,7 +317,7 @@ export function drawEntranceTooltip(view, dg) {
   let ly = by + 22;
   for (const [t, c, f] of lines) {
     ctx.fillStyle = c;
-    ctx.font = `${f} -apple-system, sans-serif`;
+    ctx.font = `${f} Fredoka, -apple-system, sans-serif`;
     ctx.fillText(t, bx + 12, ly);
     ly += 19;
   }
@@ -336,7 +337,7 @@ export function drawBossBar(view) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#ffd166";
-  ctx.font = "700 13px -apple-system, sans-serif";
+  ctx.font = "700 13px Fredoka, -apple-system, sans-serif";
   ctx.fillText(`${(b.name || "Guardian").toUpperCase()} — Depth ${dungeon.depth}`, w / 2, y - 7);
   ctx.fillStyle = "#3a2630";
   roundRect(ctx, x, y, bw, bh, 4);
@@ -397,7 +398,7 @@ export function drawRoomMap(view) {
     const mark = r.type === "boss" ? "B" : r.type === "treasure" ? "$" : r.type === "heal" ? "+" : "";
     if (mark) {
       ctx.fillStyle = "#1a1620";
-      ctx.font = "700 9px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(mark, cx + cell / 2, cy + cell / 2 + 1);
@@ -415,7 +416,7 @@ export function drawToasts(view) {
     const y = h * 0.38 - i * 28;
     const alpha = Math.min(1, t.t / 0.6);
     ctx.globalAlpha = alpha;
-    ctx.font = "600 16px -apple-system, sans-serif";
+    ctx.font = "600 16px Fredoka, -apple-system, sans-serif";
     const tw = ctx.measureText(t.text).width;
     ctx.fillStyle = "rgba(10,12,20,0.6)";
     roundRect(ctx, w / 2 - tw / 2 - 12, y - 13, tw + 24, 26, 6);
@@ -487,18 +488,18 @@ export function drawItemPickups(view) {
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#93a0b6";
-    ctx.font = "700 9px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText("✦ ACQUIRED · " + slotTag(item), tx, cy - 9);
     ctx.fillStyle = rc;
-    ctx.font = "800 16px -apple-system, sans-serif";
+    ctx.font = "800 16px Fredoka, -apple-system, sans-serif";
     ctx.fillText(clipText(ctx, item.name, cw - 62 - 56), tx, cy + 9);
     ctx.fillStyle = "#aeb8cc";
-    ctx.font = "700 10px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText((RARITIES[item.rarity] && RARITIES[item.rarity].name) || "", tx, cy + 22);
     // Power, right-aligned in amber to echo the HUD power readout.
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffd27a";
-    ctx.font = "800 14px -apple-system, sans-serif";
+    ctx.font = "800 14px Fredoka, -apple-system, sans-serif";
     ctx.fillText("⚡" + itemPower(item), x0 + cw - 16, cy + 6);
     ctx.restore();
   });
@@ -517,6 +518,10 @@ export function drawWaypoints(view) {
   const { ctx, w, h, scene, world, camera, player, touch } = view;
   if (scene !== "overworld" || !world || !camera || player.dead) return;
   if (!touch || !touch.capable) return;
+  // While the tutorial is pointing at an overworld target (dungeon to dive / camp to
+  // bank), it draws the ONE focused pointer — hide the generic wayfinder so a new player
+  // has a single, clear target.
+  if (view.tutorialHint) return;
 
   const targets = [];
 
@@ -552,6 +557,23 @@ export function drawWaypoints(view) {
       label: BIOMES[best.biome] ? BIOMES[best.biome].name : "Dungeon",
       sub: "⚡" + recommendedPower(best.tierIndex + 1),
     });
+  }
+
+  // (3) Nearest uncleared BOON point of interest (shrine/cache) — a reason to roam.
+  // Roaming bosses are deliberately excluded so the arrow never funnels an
+  // under-geared player into a fight (the map still marks them in warning orange).
+  let bp = null;
+  let bpd = Infinity;
+  for (const p of world.pois || []) {
+    if (p.cleared) continue;
+    const def = POI_TYPES[p.kind];
+    if (def && def.interact === "aggro") continue;
+    const d = dist(player.x, player.y, p.x, p.y);
+    if (d < bpd) { bpd = d; bp = p; }
+  }
+  if (bp) {
+    const def = POI_TYPES[bp.kind];
+    targets.push({ x: bp.x, y: bp.y, color: def ? def.color : "#9fd8ff", label: def ? def.name : "Point of Interest", sub: bp.found ? "found" : "?" });
   }
 
   const cxs = w / 2;
@@ -616,10 +638,10 @@ export function drawWaypoints(view) {
     const ly = onScreen ? ey - 26 : ey - Math.sin(ang) * 34;
     ctx.globalAlpha = 1;
     ctx.fillStyle = tg.color;
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText(tg.label, lx, ly - 6);
     ctx.fillStyle = "rgba(205,213,226,0.85)";
-    ctx.font = "600 10px -apple-system, sans-serif";
+    ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText(tg.sub + " · " + Math.round(dist(player.x, player.y, tg.x, tg.y)) + "m", lx, ly + 6);
   }
   ctx.restore();
@@ -635,7 +657,7 @@ export function drawBanner(view) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textAlign = "center";
-  ctx.font = "600 22px -apple-system, sans-serif";
+  ctx.font = "600 22px Fredoka, -apple-system, sans-serif";
   const tw = ctx.measureText(banner.text).width;
   ctx.fillStyle = "rgba(10,12,20,0.6)";
   roundRect(ctx, w / 2 - tw / 2 - 18, 64, tw + 36, 40, 8);
@@ -664,13 +686,13 @@ export function drawHud(view) {
   roundRect(ctx, x, y, bw * frac, bh, 4);
   ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.font = "600 12px -apple-system, sans-serif";
+  ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
   ctx.textBaseline = "middle";
   ctx.fillText(`${Math.ceil(player.hp)} / ${player.maxHp}`, x + 8, y + bh / 2 + 1);
 
   if (player.healing) {
     ctx.fillStyle = "#7CFC9B";
-    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText("✚ healing", x + bw + 12, y + bh / 2 + 1);
   }
 
@@ -686,7 +708,7 @@ export function drawHud(view) {
     roundRect(ctx, x, dy, dw * charge, dh, 3);
     ctx.fill();
     ctx.fillStyle = charge >= 1 ? "#bdeeff" : "#7d8aa6";
-    ctx.font = "700 10px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textBaseline = "middle";
     ctx.fillText("DASH", x + dw + 8, dy + dh / 2 + 1);
   }
@@ -695,17 +717,17 @@ export function drawHud(view) {
   if (scene === "dungeon") {
     const cleared = dungeon.rooms.filter((r) => r.cleared && r.type !== "start").length;
     const total = dungeon.rooms.filter((r) => r.type !== "start").length;
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.fillStyle = depthColor(dungeon.depth);
     ctx.fillText(`${dungeon.biome.name.toUpperCase()} D${dungeon.depth}  ·  ROOMS ${cleared}/${total}`, x, dy + dh + 16);
     if (onRun) {
       ctx.fillStyle = "#ff9a6f";
-      ctx.font = "700 10px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText("⚠ LOOT AT RISK — EXTRACT TO KEEP IT", x, dy + dh + 31);
     }
   } else {
     const zone = world.safeZoneAt(player.x, player.y);
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     let label;
     let off;
     if (zone) {
@@ -719,28 +741,33 @@ export function drawHud(view) {
       off = 88;
     }
     ctx.fillText(label, x, dy + dh + 16);
-    ctx.fillStyle = "#7d8aa6";
-    ctx.font = "600 11px -apple-system, sans-serif";
-    ctx.fillText(`M: map (${mapMode})`, x + off, dy + dh + 16);
+    // Keyboard-only affordance — meaningless (and clutter) on touch devices.
+    if (!(view.touch && view.touch.capable)) {
+      ctx.fillStyle = "#7d8aa6";
+      ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
+      ctx.fillText(`M: map (${mapMode})`, x + off, dy + dh + 16);
+    }
   }
   ctx.fillStyle = CLASS_HUD_COLOR[player.class] || "#9aa6b1";
-  ctx.font = "700 11px -apple-system, sans-serif";
+  ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
   ctx.fillText(`${player.class[0].toUpperCase() + player.class.slice(1)} · ${WEAPON_TYPE_NAMES[player.weaponType] || "Unarmed"}`, x, dy + dh + 31 + (scene === "dungeon" && onRun ? 15 : 0));
 
   // Campaign objective (overworld only) — context-aware so it's obvious what to do next.
-  if (scene === "overworld") {
-    const oy = dy + dh + 46;
+  // Hidden while the tutorial card is up: the card IS the current objective, and on
+  // narrow screens the two would overlap.
+  if (scene === "overworld" && !view.tutorialActive) {
+    const oy = dy + dh + (h < 430 ? 68 : 46); // short screens: the currency row sits at +48
     if (hasWon()) {
       ctx.fillStyle = "#bfe3ff";
-      ctx.font = "800 12px -apple-system, sans-serif";
+      ctx.font = "800 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText("✦ CHAMPION — the Heart of Winter is stilled", x, oy);
     } else {
       const deepest = getDeepest();
       ctx.fillStyle = "#ffd27a";
-      ctx.font = "800 12px -apple-system, sans-serif";
+      ctx.font = "800 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText("◆ OBJECTIVE", x, oy);
       ctx.fillStyle = "#dbe3f0";
-      ctx.font = "600 12px -apple-system, sans-serif";
+      ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
       const msg = deepest === 0
         ? "Find a dungeon entrance in the wilds and dive in (E)"
         : `Descend to Depth ${FINAL_DEPTH}, still the Heart of Winter  ·  best ${deepest}/${FINAL_DEPTH}`;
@@ -748,52 +775,180 @@ export function drawHud(view) {
     }
   }
 
-  ctx.textAlign = "right";
-  ctx.font = "700 16px -apple-system, sans-serif";
-  ctx.fillStyle = "#1b2236";
-  ctx.fillText(`Slain: ${kills}`, w - 20, 30);
-  ctx.fillStyle = "#caa12a";
-  ctx.fillText(`◉ ${player.coins}`, w - 20, 52);
-  ctx.fillStyle = "#5aa8cc";
-  ctx.fillText(`✦ ${getShards()}`, w - 20, 74);
-  // Frost Cores — the crafting material spent at the Forge / paid by bounties.
-  ctx.fillStyle = "#7fc8e6";
-  ctx.fillText(`✺ ${getCores()}`, w - 20, 96);
-  // Power Level — the looter-shooter chase number.
-  ctx.fillStyle = "#ffd27a";
-  ctx.font = "800 18px -apple-system, sans-serif";
-  ctx.fillText(`⚡ ${player.power}`, w - 20, 122);
-  if (player.godMode) {
-    ctx.fillStyle = "#7CFC9B";
-    ctx.font = "700 12px -apple-system, sans-serif";
-    ctx.fillText("GOD", w - 20, 142);
+  // Account readouts. On SHORT screens (landscape phones) the top-right corner is
+  // occupied by the portal's own floating widgets (CrazyGames overlays its account
+  // buttons there on mobile), so tuck the readouts as ONE compact row under the
+  // left status column instead of a right-aligned stack.
+  if (h < 430) {
+    const cy2 = dy + dh + (scene === "dungeon" && onRun ? 62 : 48);
+    ctx.textAlign = "left";
+    ctx.font = "700 13px Fredoka, -apple-system, sans-serif";
+    ctx.fillStyle = "#caa12a";
+    ctx.fillText(`◉ ${player.coins}`, x, cy2);
+    ctx.fillStyle = "#5aa8cc";
+    ctx.fillText(`✦ ${getShards()}`, x + 84, cy2);
+    ctx.fillStyle = "#7fc8e6";
+    ctx.fillText(`✺ ${getCores()}`, x + 158, cy2);
+    ctx.fillStyle = "#ffd27a";
+    ctx.font = "800 14px Fredoka, -apple-system, sans-serif";
+    ctx.fillText(`⚡ ${player.power}`, x + 228, cy2);
+  } else {
+    ctx.textAlign = "right";
+    ctx.font = "700 16px Fredoka, -apple-system, sans-serif";
+    ctx.fillStyle = "#1b2236";
+    ctx.fillText(`Slain: ${kills}`, w - 20, 30);
+    ctx.fillStyle = "#caa12a";
+    ctx.fillText(`◉ ${player.coins}`, w - 20, 52);
+    ctx.fillStyle = "#5aa8cc";
+    ctx.fillText(`✦ ${getShards()}`, w - 20, 74);
+    // Frost Cores — the crafting material spent at the Forge / paid by bounties.
+    ctx.fillStyle = "#7fc8e6";
+    ctx.fillText(`✺ ${getCores()}`, w - 20, 96);
+    // Power Level — the looter-shooter chase number.
+    ctx.fillStyle = "#ffd27a";
+    ctx.font = "800 18px Fredoka, -apple-system, sans-serif";
+    ctx.fillText(`⚡ ${player.power}`, w - 20, 122);
+    if (player.godMode) {
+      ctx.fillStyle = "#7CFC9B";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+      ctx.fillText("GOD", w - 20, 142);
+    }
   }
   ctx.textAlign = "left";
+}
+
+// A small camcorder glyph for rewarded-ad buttons — clearly a VIDEO (not a bare play ▶),
+// per CrazyGames. Drawn centered on (cx,cy); `h` is the body height. Returns its total
+// width so callers can lay out "icon + gap + label" as a centered group.
+export function drawVideoIcon(ctx, cx, cy, h, color) {
+  const bw = h * 1.25; // body width
+  const tw = h * 0.5; // lens/tail width
+  const total = bw + 3 + tw;
+  const bx = cx - total / 2;
+  ctx.save();
+  ctx.fillStyle = color;
+  roundRect(ctx, bx, cy - h / 2, bw, h, h * 0.22);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(bx + bw + 3, cy - h * 0.3);
+  ctx.lineTo(bx + bw + 3 + tw, cy - h * 0.44);
+  ctx.lineTo(bx + bw + 3 + tw, cy + h * 0.44);
+  ctx.lineTo(bx + bw + 3, cy + h * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  return total;
+}
+
+// Ambient reminder while resting at the home camp: TAB opens the title menu (switch
+// class / stash). Deliberately faint, and desktop-only — touch devices get a tappable
+// MENU button (touch.js) instead of a keyboard hint. Sits ABOVE the E-prompt pill
+// (drawPrompt at h-92..h-58) so the two stack instead of overlapping.
+export function drawMenuHint(view) {
+  const { ctx, w, h, touch } = view;
+  if (touch && touch.capable) return;
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "600 13px Fredoka, -apple-system, sans-serif";
+  const text = "Press TAB — menu · switch class & stash";
+  const tw = ctx.measureText(text).width;
+  ctx.fillStyle = "rgba(10,12,20,0.6)";
+  roundRect(ctx, w / 2 - tw / 2 - 12, h - 126, tw + 24, 26, 7);
+  ctx.fill();
+  ctx.fillStyle = "#bfd7ee";
+  ctx.fillText(text, w / 2, h - 112);
+  ctx.restore();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+// Death-screen button rects — the SINGLE source of geometry for both the draw
+// (below) and the click hit-test in main.js's death handler. On SHORT screens
+// (landscape phones) the two buttons sit SIDE-BY-SIDE so nothing runs off the
+// bottom edge; otherwise they stack.
+export function gameOverButtons(w, h) {
+  const short = h < 420;
+  if (short) {
+    const bw = 300;
+    const dbw = 210;
+    const bh = 48;
+    const gap = 14;
+    const x0 = w / 2 - (bw + gap + dbw) / 2;
+    const by = h / 2 + 30;
+    return { revive: { x: x0, y: by, w: bw, h: bh }, decline: { x: x0 + bw + gap, y: by, w: dbw, h: bh }, short };
+  }
+  return {
+    revive: { x: w / 2 - 165, y: h / 2 + 58, w: 330, h: 52 },
+    decline: { x: w / 2 - 110, y: h / 2 + 58 + 52 + 14, w: 220, h: 44 },
+    short,
+  };
 }
 
 export function drawGameOver(view) {
   const { ctx, w, h, player, scene, dungeon, world, pickups, projectiles, portals, kills, mapMode, banner, toasts, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock } = view;
   ctx.fillStyle = "rgba(8, 12, 24, 0.6)";
   ctx.fillRect(0, 0, w, h);
+  const short = h < 420; // landscape phones — tighten vertically
+  const small = w < 560 || short; // smaller type so headlines don't clip / crowd
   ctx.textAlign = "center";
   ctx.fillStyle = "#fff";
-  ctx.font = "700 48px -apple-system, sans-serif";
-  ctx.fillText("The penguin has fallen", w / 2, h / 2 - 40);
+  ctx.font = (small ? "700 30px" : "700 48px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText("The penguin has fallen", w / 2, short ? h / 2 - 58 : h / 2 - 40);
 
   if (onRun) {
     // Died mid-run: the loot is forfeit, but the shards carry over.
     const gained = shardsForRun(runDeepest, false);
-    ctx.font = "600 20px -apple-system, sans-serif";
+    ctx.font = (small ? "600 15px" : "600 20px") + " Fredoka, -apple-system, sans-serif";
     ctx.fillStyle = "#ff9a6f";
-    ctx.fillText(`Run lost at Depth ${runDeepest} — unbanked loot forfeit`, w / 2, h / 2 + 2);
+    ctx.fillText(`Run lost at Depth ${runDeepest} — unbanked loot forfeit`, w / 2, short ? h / 2 - 28 : h / 2 + 2);
     ctx.fillStyle = "#7fd2ff";
-    ctx.font = "600 17px -apple-system, sans-serif";
-    ctx.fillText(`+${gained} ✦ shards salvaged (kept forever)`, w / 2, h / 2 + 30);
-    ctx.fillStyle = "#cdd7ee";
-    ctx.font = "500 16px -apple-system, sans-serif";
-    ctx.fillText("Click or press R — return to camp", w / 2, h / 2 + 60);
+    ctx.font = (small ? "600 14px" : "600 17px") + " Fredoka, -apple-system, sans-serif";
+    ctx.fillText(`+${gained} ✦ shards salvaged (kept forever)`, w / 2, short ? h / 2 - 4 : h / 2 + 30);
+    if (view.reviveAvailable) {
+      // Rewarded revive — watch a short ad to get back up and keep the run's loot
+      // (once/run) — plus the explicit "Return to camp" decline (essential on touch:
+      // no keyboard R, and a stray tap must not forfeit). Geometry: gameOverButtons.
+      const b = gameOverButtons(w, h);
+      const hov = input.mouseX >= b.revive.x && input.mouseX <= b.revive.x + b.revive.w && input.mouseY >= b.revive.y && input.mouseY <= b.revive.y + b.revive.h;
+      ctx.fillStyle = hov ? "#3fbf7a" : "#2f9f60";
+      roundRect(ctx, b.revive.x, b.revive.y, b.revive.w, b.revive.h, 11);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = (b.short ? "800 15px" : "800 17px") + " Fredoka, -apple-system, sans-serif";
+      ctx.textBaseline = "middle";
+      const rcx = b.revive.x + b.revive.w / 2;
+      const rcy = b.revive.y + b.revive.h / 2;
+      const rLabel = "Revive — watch a video";
+      const rIconW = 24, rGap = 9;
+      const rGroup = rIconW + rGap + ctx.measureText(rLabel).width;
+      const rSx = rcx - rGroup / 2;
+      drawVideoIcon(ctx, rSx + rIconW / 2, rcy, b.short ? 12 : 13, "#ffffff");
+      ctx.textAlign = "left";
+      ctx.fillText(rLabel, rSx + rIconW + rGap, rcy);
+      ctx.textAlign = "center";
+      const dhov = input.mouseX >= b.decline.x && input.mouseX <= b.decline.x + b.decline.w && input.mouseY >= b.decline.y && input.mouseY <= b.decline.y + b.decline.h;
+      ctx.fillStyle = dhov ? "rgba(62,74,98,0.92)" : "rgba(40,50,70,0.72)";
+      roundRect(ctx, b.decline.x, b.decline.y, b.decline.w, b.decline.h, 10);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(205,215,238,0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = "#cdd7ee";
+      ctx.font = "700 15px Fredoka, -apple-system, sans-serif";
+      ctx.fillText("Return to camp", b.decline.x + b.decline.w / 2, b.decline.y + b.decline.h / 2);
+      ctx.textBaseline = "alphabetic";
+    } else {
+      ctx.fillStyle = "#cdd7ee";
+      ctx.font = "500 16px Fredoka, -apple-system, sans-serif";
+      ctx.fillText("Click or press R — return to camp", w / 2, short ? h / 2 + 40 : h / 2 + 60);
+    }
   } else {
-    ctx.font = "500 20px -apple-system, sans-serif";
+    ctx.font = (small ? "500 14px" : "500 20px") + " Fredoka, -apple-system, sans-serif";
     ctx.fillStyle = "#cdd7ee";
     ctx.fillText(`Creatures slain: ${kills}  —  click or press R to return to camp`, w / 2, h / 2 + 12);
   }
@@ -805,21 +960,22 @@ export function drawVictory(view) {
   const { ctx, w, h, runDeepest } = view;
   ctx.fillStyle = "rgba(8, 16, 30, 0.74)";
   ctx.fillRect(0, 0, w, h);
+  const narrow = w < 560; // portrait phones — smaller type so headlines don't clip
   ctx.textAlign = "center";
   ctx.fillStyle = "#bfe3ff";
-  ctx.font = "700 30px -apple-system, sans-serif";
+  ctx.font = (narrow ? "700 22px" : "700 30px") + " Fredoka, -apple-system, sans-serif";
   ctx.fillText("✦  VICTORY  ✦", w / 2, h / 2 - 92);
   ctx.fillStyle = "#ffffff";
-  ctx.font = "700 46px -apple-system, sans-serif";
+  ctx.font = (narrow ? "700 28px" : "700 46px") + " Fredoka, -apple-system, sans-serif";
   ctx.fillText("The Heart of Winter is stilled", w / 2, h / 2 - 40);
   ctx.fillStyle = "#cdd7ee";
-  ctx.font = "500 19px -apple-system, sans-serif";
+  ctx.font = (narrow ? "500 14px" : "500 19px") + " Fredoka, -apple-system, sans-serif";
   ctx.fillText(`You descended to Depth ${runDeepest} and ended the long cold.`, w / 2, h / 2 + 6);
   ctx.fillStyle = "#9be29a";
-  ctx.font = "600 17px -apple-system, sans-serif";
+  ctx.font = (narrow ? "600 13px" : "600 17px") + " Fredoka, -apple-system, sans-serif";
   ctx.fillText("Your loot is secured — you return to camp a Champion.", w / 2, h / 2 + 40);
   ctx.fillStyle = "#7d8aa6";
-  ctx.font = "500 15px -apple-system, sans-serif";
+  ctx.font = (narrow ? "500 12px" : "500 15px") + " Fredoka, -apple-system, sans-serif";
   ctx.fillText("The depths remain open. Click or press E to continue.", w / 2, h / 2 + 72);
   ctx.textAlign = "left";
 }
@@ -839,7 +995,7 @@ export function drawRecall(view) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#bff0ff";
-  ctx.font = "600 13px -apple-system, sans-serif";
+  ctx.font = "600 13px Fredoka, -apple-system, sans-serif";
   ctx.fillText("Hold R — returning to camp…", cx, cy - 6);
   ctx.fillStyle = "rgba(255,255,255,0.16)";
   roundRect(ctx, cx - bw / 2, cy + 4, bw, bh, 4);

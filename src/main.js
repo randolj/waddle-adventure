@@ -8,18 +8,22 @@ import { Dungeon, dungeonConfig, depthColor, FINAL_DEPTH } from "./dungeon.js";
 import { drawMap } from "./minimap.js";
 import { InventoryUI } from "./inventory.js";
 import { DebugMenu } from "./debug.js";
-import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, decodeRelic, forgeLegendary, temperItem, rerollAffixes, RARITIES, SLOTS, CLASS_NAMES } from "./items.js";
+import { rollShopStock, rollDropTemplate, rollItem, makeItem, makeSealedRelic, decodeRelic, forgeLegendary, temperItem, rerollAffixes, RARITIES, RARITY_ORDER, ITEM_TEMPLATES, SLOTS, CLASS_NAMES } from "./items.js";
 import { MetaUI } from "./metaui.js";
 import { BoardUI } from "./boardui.js";
 import { ForgeUI } from "./forgeui.js";
+import { ShrineUI } from "./shrineui.js";
+import { POI_TYPES, rollBuffChoices } from "./poi.js";
+import { DailyUI } from "./dailyui.js";
 import { MenuScreen } from "./menu.js";
+import { Tutorial } from "./tutorial.js";
 import { Fx } from "./fx.js";
-import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawWaypoints, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall } from "./hud.js";
-import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest, reloadFromStore, getCores, addCores, spendCores, getBounties, bountyProgress, claimBounty, rerollBounty, resetBounties } from "./meta.js";
+import { drawProjectiles, drawAmbient, drawLowHpVignette, drawSpawners, drawChainTarget, drawDamageIndicator, drawCombo, drawPortals, drawPickups, drawPrompt, drawEntranceTooltip, drawBossBar, drawRoomMap, drawToasts, drawItemPickups, drawWaypoints, drawBanner, drawHud, drawGameOver, drawVictory, drawRecall, drawVideoIcon, drawMenuHint, gameOverButtons } from "./hud.js";
+import { metaBonuses, addShards, getShards, shardsForRun, resetMeta, getChar, hasChar, setActive, getActive, saveChar, hasWon, markWon, noteDepth, getDeepest, reloadFromStore, setCloudReady, getCores, addCores, spendCores, getBounties, bountyProgress, claimBounty, rerollBounty, resetBounties, getDaily, getChars, dailyDropClaimable, dailyDropStreak, claimDailyDrop, premiumCrateClaimable, markPremiumCrateClaimed } from "./meta.js";
 import { BIOMES } from "./biomes.js";
 import { sfx, resumeAudio, toggleMute, isMuted, setAutoMute, setPortalMute } from "./sfx.js";
 import { portal } from "./portal.js";
-import { dist, angleDiff, clamp } from "./utils.js";
+import { dist, angleDiff, clamp, roundRect } from "./utils.js";
 
 // Debug overlay (backtick) is dev-only — off on a real portal/production host so players
 // can't open it. Force it anywhere with ?debug in the URL.
@@ -52,6 +56,12 @@ const ui = new InventoryUI();
 const metaUi = new MetaUI();
 const boardUi = new BoardUI();
 const forgeUi = new ForgeUI();
+const shrineUi = new ShrineUI();
+const tutorial = new Tutorial();
+const dailyUi = new DailyUI(); // the 7-day supply-drop calendar popup
+let dailyPopupShown = false; // auto-open at most once per session
+let tutorialFoeSpawned = false; // spawn a single practice foe just outside camp for the attack step
+let bannerShown = false; // whether the CrazyGames banner is currently displayed
 const menu = new MenuScreen();
 const debug = new DebugMenu();
 const fx = new Fx(); // screen juice: particles, floaters, rings, shake, hit-stop
@@ -88,6 +98,9 @@ let nearElder = false;
 let nearQuartermaster = false;
 let nearBoard = false; // standing at the Mission Board
 let nearForge = false; // standing at the Forge
+let nearSupply = false; // standing at the Daily Supply Drop crate (claimable today)
+let nearTownQM = null; // the town whose Upgrades kiosk the player stands at
+let nearPoi = null; // overworld point of interest the player can E-interact with
 let nearTownShop = null; // the town whose shop the player is standing at
 let nearDungeon = null;
 let nearChest = false; // standing at an unopened treasure chest
@@ -104,6 +117,16 @@ let lastRunResult = null; // { extracted, depth, shards } for the game-over / ba
 let hoverDungeon = null;
 let victory = false; // showing the win overlay after slaying the final boss
 let victoryHold = 0; // brief input-lockout so mid-combat clicks don't skip the win screen
+let revivedThisRun = false; // used the rewarded revive this run (one per run)
+let extractSummary = null; // { shards, cores, depth } — post-extract overlay offering a rewarded double
+// Roaming-event reward offer (Sky-Drop Cache / Gilded Quarry): a pause-gate overlay
+// offering a rewarded ad for bonus spoils. { kind, title, sub, acceptLabel, declineLabel,
+// x, y, tier, poi? } — grant runs ONLY inside the ad's onReward.
+let adOffer = null;
+let fieldKitChoices = null; // the in-dungeon vendor's cached 1-of-3 buff stock (per depth)
+// Shop Premium Crate: today's rolled item (in-memory; the once-per-day cap persists in
+// meta). Re-rolled when a new local day starts or the class changes.
+let premiumStock = null; // { day, cls, item }
 // Particles / shake / hit-stop live on the `fx` instance (fx.js). Ambient motes,
 // spawn telegraphs, the combo counter, and footstep timing stay here.
 let ambient, ambientTimer, fxClock, prevHp;
@@ -111,11 +134,15 @@ let spawners, footTimer;
 let combo = 0;
 let comboTimer = 0;
 let wasAttacking = false;
+let wasDashStrike = false; // rising-edge detect for the tutorial's dash-strike lesson
 let wasDashing = false;
 
 // Start/resume audio on the first user gesture (autoplay policy).
 window.addEventListener("pointerdown", resumeAudio);
 window.addEventListener("keydown", resumeAudio);
+// iOS unlocks the AudioContext most reliably from a touchend gesture (touchstart /
+// pointerdown alone sometimes isn't accepted) — without this, mobile sound can stay off.
+window.addEventListener("touchend", resumeAudio);
 
 function resize() {
   dpr = window.devicePixelRatio || 1;
@@ -162,12 +189,25 @@ function applyPaused() {
   if (p === paused) return;
   paused = p;
   setAutoMute(p);
-  if (p) {
-    portal.gameplayStop();
-  } else {
-    resumeAudio(); // browsers auto-suspend the AudioContext while hidden — wake it
-    if (scene !== "menu" && !player.dead && !victory) portal.gameplayStart();
-  }
+  if (!p) resumeAudio(); // browsers auto-suspend the AudioContext while hidden — wake it
+  // gameplayStart/Stop is reported once per frame by syncGameplay() (which also accounts
+  // for open overlays / menus), so it is intentionally NOT called here.
+}
+
+// Report "actively playing" to the portal SDK once per frame (idempotent via
+// portal.inGameplay). Gameplay STOPS for ANY interruption: the title/menu, a paused sim
+// (ad / tab-hidden), an open overlay (inventory / quartermaster / board / forge / shrine /
+// debug), or the game-over / victory / extract screens — and resumes only in live play.
+// Deliberately NOT tied to window focus/blur, so alt-tab never toggles the SDK session.
+function isActivelyPlaying() {
+  return (
+    scene !== "menu" && !paused && player && !player.dead && !victory && !extractSummary && !adOffer &&
+    !ui.isOpen() && !metaUi.isOpen() && !boardUi.isOpen() && !forgeUi.isOpen() && !shrineUi.isOpen() && !dailyUi.isOpen() && !debug.isOpen()
+  );
+}
+function syncGameplay() {
+  if (isActivelyPlaying()) portal.gameplayStart();
+  else portal.gameplayStop();
 }
 function pauseFor(reason) { pauseReasons.add(reason); applyPaused(); }
 function resumeFrom(reason) { pauseReasons.delete(reason); applyPaused(); }
@@ -179,13 +219,10 @@ function setPaused(p) {
   applyPaused();
 }
 
-// Pause when the tab is hidden or the window loses focus; resume when it returns.
+// Pause the sim + mute when the TAB is hidden (a genuine "away"); resume when it returns.
+// We deliberately do NOT pause or report gameplay on window blur/focus — alt-tabbing, or an
+// ad iframe stealing focus, must not toggle the SDK's gameplayStart/Stop (per CrazyGames).
 document.addEventListener("visibilitychange", () => (document.hidden ? pauseFor("hidden") : resumeFrom("hidden")));
-window.addEventListener("blur", () => pauseFor("blur"));
-window.addEventListener("focus", () => resumeFrom("blur"));
-// A pointer gesture means the game window is focused & interactive — clear any stale
-// blur pause so play can never boot into a frozen state.
-window.addEventListener("pointerdown", () => resumeFrom("blur"));
 
 // Request a portal ad at a natural between-runs beat. The "ad" reason holds the pause
 // for the WHOLE ad regardless of any focus/visibility churn its iframe causes; a no-op
@@ -194,10 +231,328 @@ function runAdBreak() {
   portal.adBreak({ onStart: () => pauseFor("ad"), onFinish: () => resumeFrom("ad") });
 }
 
+// Rewarded ad — REVIVE on death (once per run). onReward fires only if the ad completes
+// (or off-portal, where the feature just works). Pause+mute during the ad like adBreak.
+function runReviveAd() {
+  let granted = false;
+  const started = portal.rewarded({
+    onStart: () => pauseFor("ad"),
+    onFinish: () => resumeFrom("ad"),
+    onReward: () => {
+      granted = true;
+      revivedThisRun = true;
+      player.dead = false;
+      player.hp = Math.max(1, Math.round(player.maxHp * (metaBonuses().reviveHeal || 0.5))); // Second Wind
+      player.iframe = 1.4; // a grace window so you don't instantly die again
+      player.hurtFlash = 0;
+      prevHp = player.hp;
+      addToast("Revived — back on your feet!", "#7CFC9B");
+      addRing(player.x, player.y, player.r * 0.5, player.r * 4, 0.6, "#9bffc0", 5);
+      sfx.item();
+    },
+  });
+  // No SDK ad initiated and nothing granted → an ad is unavailable here (e.g. blocked on a
+  // portal host). Tell the player so the dead click isn't silent; they can still forfeit.
+  if (!started && !granted) addToast("Ad unavailable — use Return to camp", "#ff9a6f");
+}
+
+// Rewarded ad — DOUBLE the extract reward (offered on the post-extract summary).
+function runDoubleAd() {
+  const offer = extractSummary;
+  if (!offer) return;
+  extractSummary = null; // close the summary (the ad plays over a paused game either way)
+  let granted = false;
+  const started = portal.rewarded({
+    onStart: () => pauseFor("ad"),
+    onFinish: () => resumeFrom("ad"),
+    onReward: () => {
+      granted = true;
+      addShards(offer.shards);
+      addCores(offer.cores);
+      saveActiveChar();
+      addToast(`Reward doubled!  +${offer.shards} ✦  +${offer.cores} ✺`, "#ffd166");
+    },
+  });
+  if (!started && !granted) addToast("Ad unavailable — reward not doubled", "#ff9a6f");
+}
+
+// --- Roaming-event rewarded offers (Sky-Drop Cache / Gilded Quarry) ----------
+// Both grants run at overworld safe beats (drops + meta currency are legal there).
+// Roll until an epic-or-better lands (bounded) — the sealed-cache / gilded prize
+// must FEEL premium or the ad ask reads as a rip-off.
+function rollPremiumItem(tier) {
+  const floor = RARITY_ORDER.indexOf("epic");
+  let it = null;
+  for (let i = 0; i < 60; i++) {
+    it = rollItem(rollDropTemplate(Math.random, player.class), tier + 2);
+    if (RARITY_ORDER.indexOf(it.rarity) >= floor) return it;
+  }
+  // Probabilistic misses (~1%) are not acceptable for a "premium" promise — fall back
+  // to rolling a directly-picked epic+ template usable by this class.
+  const pool = ITEM_TEMPLATES.filter((t) => RARITY_ORDER.indexOf(t.rarity) >= floor && (!t.classes || t.classes.includes(player.class)));
+  if (pool.length) return rollItem(pool[Math.floor(Math.random() * pool.length)], tier + 2);
+  return it;
+}
+function grantSkydropSpoils(x, y, tier) {
+  pickups.push({ kind: "item", x, y: y - 40, item: rollPremiumItem(tier), t: 0 });
+  addCores(2 + (tier >> 1));
+  addToast(`The sealed cache opens — rare gear!  +${2 + (tier >> 1)} ✺`, "#8fd0ff");
+  spawnBurst(x, y - 10, 24, "#bfe8ff", 260, 3.8, 0.6);
+  addRing(x, y - 10, 10, 90, 0.5, "#8fd0ff", 4);
+  sfx.item();
+}
+function grantGildedSpoils(x, y, tier) {
+  pickups.push({ kind: "item", x, y: y - 36, item: rollItem(rollDropTemplate(Math.random, player.class), tier + 1), t: 0 });
+  pickups.push({ kind: "coin", x: x - 44, y: y + 8, amount: 30 + tier * 14 + Math.floor(Math.random() * 20), t: 0 });
+  pickups.push({ kind: "coin", x: x + 44, y: y + 8, amount: 30 + tier * 14 + Math.floor(Math.random() * 20), t: 0 });
+  addCores(1 + (tier >> 1));
+  spawnBurst(x, y - 8, 26, "#ffd166", 280, 4, 0.6);
+  addRing(x, y - 8, 10, 100, 0.55, "#ffe27a", 5);
+  sfx.item();
+}
+// Shop Premium Crate — one high-rarity item per local day, unsealed by a rewarded ad.
+// The item preview is rolled fresh per day/class (epic floor, scaled to the player's
+// deepest depth so it stays a real upgrade); the claim itself happens via adOffer.
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+function ensurePremiumStock() {
+  const day = todayKey();
+  if (!premiumStock || premiumStock.day !== day || premiumStock.cls !== player.class) {
+    premiumStock = { day, cls: player.class, item: rollPremiumItem(Math.max(1, Math.min(8, getDeepest()))) };
+  }
+}
+const shopApi = {
+  // The premium slot shown in the shop's Buy view (null once today's is claimed).
+  premium() {
+    if (!premiumCrateClaimable()) return null;
+    ensurePremiumStock();
+    return premiumStock.item;
+  },
+  // Clicking the slot: close the shop (the adOffer overlay owns input) and offer the ad.
+  claimPremium() {
+    if (!premiumCrateClaimable() || !premiumStock) return;
+    ui.close();
+    adOffer = {
+      kind: "premium",
+      item: premiumStock.item,
+      x: player.x,
+      y: player.y,
+      title: "PREMIUM CRATE",
+      sub: `Inside: ${premiumStock.item.name} — ${RARITIES[premiumStock.item.rarity].name} ${premiumStock.item.slot}.`,
+      acceptLabel: "Unseal it — watch a video",
+      declineLabel: "Not today",
+    };
+  },
+};
+
+// Daily Supply Drop: claim at the camp crate (safe point — grants + save are legal).
+// Base rewards land immediately; the adOffer overlay then offers a rewarded double.
+function grantSupplyDrop(r, x, y) {
+  pickups.push({ kind: "coin", x: x - 34, y: y + 12, amount: Math.ceil(r.coins / 2), t: 0 });
+  pickups.push({ kind: "coin", x: x + 34, y: y + 12, amount: Math.floor(r.coins / 2), t: 0 });
+  addCores(r.cores);
+  addShards(r.shards);
+  spawnBurst(x, y - 8, 20, "#ffd166", 240, 3.6, 0.55);
+  addRing(x, y - 8, 8, 80, 0.5, "#ffe27a", 4);
+  sfx.item();
+}
+function claimSupplyDrop() {
+  const r = claimDailyDrop();
+  if (!r) return;
+  const { x, y } = world.supply;
+  grantSupplyDrop(r, x, y);
+  // Every 7th consecutive day is the calendar's MYSTERY slot — a guaranteed
+  // epic-floor item on top of the usual haul.
+  if (r.mystery) {
+    const itx = rollPremiumItem(Math.max(1, Math.min(8, getDeepest())));
+    player.addItem(itx);
+    itemPickups.push({ item: itx, t: 3.4 });
+    addToast(`MYSTERY REWARD — ${itx.name}!`, "#c98fff");
+  }
+  addToast(`Daily supply claimed — Day ${r.streak} streak!  +${r.coins} ◉  +${r.shards} ✦  +${r.cores} ✺`, "#ffd166");
+  saveActiveChar(); // camp = safe save point
+  adOffer = {
+    kind: "daily",
+    base: r,
+    x,
+    y,
+    title: "DAILY SUPPLY DROP",
+    sub: `Day ${r.streak} streak — rations secured. Come back tomorrow to keep it going!`,
+    acceptLabel: "Double it — watch a video",
+    declineLabel: "Take it and go",
+  };
+}
+
+// Resolve the current adOffer. Accept → rewarded ad; the bonus grants ONLY inside
+// onReward (adFinished). Decline (or ad unavailable) keeps the free spoils already
+// granted and spends the event.
+function resolveAdOffer(accepted) {
+  const offer = adOffer;
+  if (!offer) return;
+  adOffer = null;
+  if (offer.poi) finishPoi(offer.poi); // spend the event either way (session re-arms later)
+  if (!accepted) return;
+  let granted = false;
+  const started = portal.rewarded({
+    onStart: () => pauseFor("ad"),
+    onFinish: () => resumeFrom("ad"),
+    onReward: () => {
+      granted = true;
+      if (offer.kind === "skydrop") grantSkydropSpoils(offer.x, offer.y, offer.tier);
+      else if (offer.kind === "gilded") {
+        grantGildedSpoils(offer.x, offer.y, offer.tier);
+        addToast("The spoils are DOUBLED!", "#ffd166");
+      } else if (offer.kind === "daily" && offer.base) {
+        grantSupplyDrop(offer.base, offer.x, offer.y);
+        addToast("Daily supply DOUBLED!", "#ffd166");
+      } else if (offer.kind === "premium" && offer.item) {
+        player.addItem(offer.item);
+        itemPickups.push({ item: offer.item, t: 3.4 });
+        markPremiumCrateClaimed(); // burn the daily cap ONLY on a real reward
+        premiumStock = null;
+        addToast(`Premium crate unsealed — ${offer.item.name}!`, "#ffd166");
+        sfx.item();
+        saveActiveChar(); // at the camp shop = safe point
+      }
+    },
+  });
+  if (!started && !granted) addToast("Ad unavailable — the spoils stay as they are", "#ff9a6f");
+}
+function drawAdOffer() {
+  if (!adOffer) return;
+  const { w, h } = viewSize();
+  const narrow = w < 560;
+  ctx.fillStyle = "rgba(8,14,26,0.74)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.textAlign = "center";
+  ctx.fillStyle = adOffer.kind === "gilded" ? "#ffd166" : "#8fd0ff";
+  ctx.font = (narrow ? "700 24px" : "700 36px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText(adOffer.title, w / 2, h / 2 - 64);
+  ctx.fillStyle = "#cdd7ee";
+  ctx.font = (narrow ? "600 14px" : "600 18px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText(adOffer.sub, w / 2, h / 2 - 24);
+  const b = extractSummaryButtons(w, h);
+  const hov = (r) => input.mouseX >= r.x && input.mouseX <= r.x + r.w && input.mouseY >= r.y && input.mouseY <= r.y + r.h;
+  ctx.textBaseline = "middle";
+  // Accept (rewarded) — gold, with the camcorder icon.
+  ctx.fillStyle = hov(b.double) ? "#e6ac3c" : "#c98f28";
+  roundRect(ctx, b.double.x, b.double.y, b.double.w, b.double.h, 10);
+  ctx.fill();
+  ctx.fillStyle = "#1a1206";
+  ctx.font = (narrow ? "800 13px" : "800 14px") + " Fredoka, -apple-system, sans-serif";
+  {
+    const iconW = 20, gap = 7;
+    const cx2 = b.double.x + b.double.w / 2;
+    const cy2 = b.double.y + b.double.h / 2 + 1;
+    let gw = iconW + gap + ctx.measureText(adOffer.acceptLabel).width;
+    if (gw > b.double.w - 14) {
+      // Long labels shrink to fit inside the button rather than spilling past it.
+      ctx.font = "800 12px Fredoka, -apple-system, sans-serif";
+      gw = iconW + gap + ctx.measureText(adOffer.acceptLabel).width;
+    }
+    const sx = cx2 - gw / 2;
+    drawVideoIcon(ctx, sx + iconW / 2, cy2, 11, "#1a1206");
+    ctx.textAlign = "left";
+    ctx.fillText(adOffer.acceptLabel, sx + iconW + gap, cy2);
+    ctx.textAlign = "center";
+  }
+  // Decline.
+  ctx.fillStyle = hov(b.cont) ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.08)";
+  roundRect(ctx, b.cont.x, b.cont.y, b.cont.w, b.cont.h, 10);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = "#dfe7f0";
+  ctx.font = "700 15px Fredoka, -apple-system, sans-serif";
+  ctx.fillText(adOffer.declineLabel, b.cont.x + b.cont.w / 2, b.cont.y + b.cont.h / 2 + 1);
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "left";
+}
+
+// Extract-summary overlay button rects (shared by the update hit-test + the draw).
+function extractSummaryButtons(w, h) {
+  const bw = 240;
+  const bh = 50;
+  const gap = 16;
+  // Side-by-side needs ~500px; on narrower (portrait phone) screens STACK the buttons —
+  // otherwise they extend past the screen edge and become untappable.
+  if (w < bw * 2 + gap + 40) {
+    const cy = h / 2 + 36;
+    return {
+      double: { x: w / 2 - bw / 2, y: cy, w: bw, h: bh },
+      cont: { x: w / 2 - bw / 2, y: cy + bh + 12, w: bw, h: bh },
+    };
+  }
+  const cy = h / 2 + 44;
+  return {
+    double: { x: w / 2 - bw - gap / 2, y: cy, w: bw, h: bh },
+    cont: { x: w / 2 + gap / 2, y: cy, w: bw, h: bh },
+  };
+}
+function drawExtractSummary() {
+  if (!extractSummary) return;
+  const { w, h } = viewSize();
+  const s = extractSummary;
+  ctx.fillStyle = "rgba(8,14,26,0.74)";
+  ctx.fillRect(0, 0, w, h);
+  const narrow = w < 560; // portrait phones — smaller type so nothing clips at the edges
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#7fd2ff";
+  ctx.font = (narrow ? "800 18px" : "800 22px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText("✦  EXTRACTED  ✦", w / 2, h / 2 - 92);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = (narrow ? "700 26px" : "700 40px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText(`Depth ${s.depth} — loot secured`, w / 2, h / 2 - 44);
+  ctx.fillStyle = "#cdd7ee";
+  ctx.font = (narrow ? "600 16px" : "600 20px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText(`Banked:  +${s.shards} ✦ shards   ·   +${s.cores} ✺ cores`, w / 2, h / 2 - 4);
+  const b = extractSummaryButtons(w, h);
+  const hov = (r) => input.mouseX >= r.x && input.mouseX <= r.x + r.w && input.mouseY >= r.y && input.mouseY <= r.y + r.h;
+  ctx.textBaseline = "middle";
+  // Double (rewarded).
+  ctx.fillStyle = hov(b.double) ? "#e6ac3c" : "#c98f28";
+  roundRect(ctx, b.double.x, b.double.y, b.double.w, b.double.h, 10);
+  ctx.fill();
+  ctx.fillStyle = "#1a1206";
+  ctx.font = "800 15px Fredoka, -apple-system, sans-serif";
+  {
+    const dLabel = "Double it — watch a video";
+    const dIconW = 22, dGap = 8;
+    const dcx = b.double.x + b.double.w / 2;
+    const dcy = b.double.y + b.double.h / 2 + 1;
+    const dGroup = dIconW + dGap + ctx.measureText(dLabel).width;
+    const dSx = dcx - dGroup / 2;
+    drawVideoIcon(ctx, dSx + dIconW / 2, dcy, 12, "#1a1206");
+    ctx.textAlign = "left";
+    ctx.fillText(dLabel, dSx + dIconW + dGap, dcy);
+    ctx.textAlign = "center";
+  }
+  // Continue.
+  ctx.fillStyle = hov(b.cont) ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.08)";
+  roundRect(ctx, b.cont.x, b.cont.y, b.cont.w, b.cont.h, 10);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = "#dfe7f0";
+  ctx.fillText("Continue", b.cont.x + b.cont.w / 2, b.cont.y + b.cont.h / 2 + 1);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#8b97ab";
+  ctx.font = (narrow ? "500 11px" : "500 13px") + " Fredoka, -apple-system, sans-serif";
+  ctx.fillText("Bank it as-is, or watch a short ad to DOUBLE the shards + cores.", w / 2, b.cont.y + b.cont.h + 28);
+  ctx.textAlign = "left";
+}
+
 // Build a fresh world + player for a class (loading `profile` if returning).
 function buildGameFor(cls, profile) {
   world = new World(WORLD_W, WORLD_H);
   player = new Player(WORLD_W / 2, WORLD_H / 2, cls, profile);
+  // Re-apply this character's spent overworld POIs (cleared caches/shrines/lairs
+  // persist per-character; the world is seed-stable so POI ids match across loads).
+  for (const p of world.pois) if (player.clearedPois.has(p.id)) p.cleared = true;
   enemies = [];
   pickups = [];
   toasts = [];
@@ -231,8 +586,12 @@ function buildGameFor(cls, profile) {
   wasAttacking = false;
   wasDashing = false;
   recallTimer = 0;
+  nearPoi = null;
   ui.close();
   metaUi.close();
+  boardUi.close();
+  forgeUi.close();
+  shrineUi.close();
 }
 
 // Restart the currently-active character (used by death paths + debug).
@@ -256,7 +615,7 @@ function startCharacter(cls) {
   banner = hasWon()
     ? { text: `${CLASS_NAMES[cls]}, Champion of the Deep — descend anew`, t: 3, safe: true }
     : { text: `The Heart of Winter stirs below — descend to Depth ${FINAL_DEPTH} and still it`, t: 4.2, safe: true };
-  if (!paused) portal.gameplayStart(); // else applyPaused() fires it on resume
+  // gameplayStart is reported by the per-frame syncGameplay() once we're in live play.
 }
 
 // Save and return to the title screen.
@@ -267,7 +626,7 @@ function returnToTitle() {
   metaUi.close();
   input.wheelY = 0; // don't carry a gameplay scroll into the menu
   menu.mode = "main";
-  portal.gameplayStop();
+  // syncGameplay() will report gameplayStop now that scene === "menu".
 }
 
 const menuApi = { onPlay: (cls) => startCharacter(cls) };
@@ -341,6 +700,146 @@ const forgeApi = {
     saveActiveChar();
     addToast(`Rerolled ${item.name}`, "#bfe8ff");
     return true;
+  },
+};
+
+// --- Overworld points of interest (poi.js registry) ---
+// The side-effect surface poi.js onInteract bodies call. Loot drops via the normal
+// pickups feed (banks on collect, like wild kills); cores/buffs are overworld-only
+// (onRun === false here) so saveActiveChar + addCores are legitimately safe.
+const poiApi = {
+  addShards,
+  addCores,
+  notifyBounty,
+  sfx,
+  toast: (t, c) => addToast(t, c),
+  burst: (x, y, n, c, sp, sz, l) => spawnBurst(x, y, n, c, sp, sz, l),
+  ring: (x, y, r0, r1, life, c, wdt) => addRing(x, y, r0, r1, life, c, wdt),
+  dropItem(x, y, tier) {
+    pickups.push({ kind: "item", x, y, item: rollItem(rollDropTemplate(Math.random, player.class), tier), t: 0 });
+  },
+  dropCoins(x, y, amount) {
+    pickups.push({ kind: "coin", x, y, amount, t: 0 });
+  },
+  // Wake a tier-scaled elite at a mini-boss POI, tagged so its death clears the POI.
+  // Tanky (×2.2 hp) but only modestly harder-hitting than a wild charger (×1.2 dmg)
+  // — combined with the grace iframe in aggroPoi, its lunge is dangerous, not a
+  // guaranteed one-shot on a full-HP passerby.
+  spawnElite(p, opts = {}) {
+    const ws = wildScale(p.x, p.y);
+    // Gilded (event) elites are tankier and gleam gold — the reward beast, not a wall.
+    const hpMul = opts.gilded ? 2.8 : 2.2;
+    const e = new Enemy(p.x, p.y, "charger", { hp: ws.hp * hpMul, dmg: ws.dmg * 1.2 });
+    e.r *= opts.gilded ? 1.5 : 1.4;
+    e.isElite = true;
+    e.poiRef = p;
+    if (opts.gilded) {
+      e.gilded = true;
+      e.color = "#e8b53a";
+    }
+    const res = world.resolve(p.x, p.y, e.r);
+    e.x = res.x;
+    e.y = res.y;
+    enemies.push(e);
+  },
+  // Sky-Drop Cache: the free coin scatter already dropped (poi.js) — now offer the
+  // sealed compartment behind a rewarded ad. finishPoi fires when the offer resolves.
+  openSkydrop(p) {
+    adOffer = {
+      kind: "skydrop",
+      poi: p,
+      tier: p.tier,
+      x: p.x,
+      y: p.y,
+      title: "SUPPLY POD",
+      sub: "The hatch gives up some coins — but a SEALED cache sits inside.",
+      acceptLabel: "Unseal it — watch a video",
+      declineLabel: "Leave it",
+    };
+  },
+  openShrine(p, choices) {
+    shrineUi.openShrine(p, choices);
+  },
+  playerStats: () => player.stats, // lets the shrine drop already-held boolean buffs
+};
+
+// Mark a POI spent + persist it (per-character). Overworld is a safe save point.
+function finishPoi(p) {
+  if (!p || p.cleared) return;
+  p.cleared = true;
+  p.choices = null; // drop any cached shrine roll
+  const def = POI_TYPES[p.kind];
+  if (def && def.session) {
+    // Roaming EVENT (skydrop/gilded): never persisted — it re-arms a few minutes from
+    // now (see the overworld update loop) so each play session keeps meeting fresh,
+    // optional rewarded beats. Currency granted by it saves via its own meta paths.
+    p.clearedAt = fxClock;
+    return;
+  }
+  if (player) {
+    player.clearedPois.add(p.id);
+    saveActiveChar();
+  }
+}
+
+// E-interact a "press" POI (shrine/cache). onInteract returns true if spent NOW
+// (cache); a shrine opens the picker and clears later when a blessing is chosen.
+function interactPoi(p) {
+  if (scene !== "overworld") return; // POIs are overworld-only — never fire mid-dive
+  const def = POI_TYPES[p.kind];
+  if (!def || p.cleared) return;
+  if (def.onInteract(p, poiApi)) finishPoi(p);
+}
+
+// Auto-aggro an "aggro" POI (mini-boss) on proximity — no E. The spawned elite
+// clears the POI on death (onEnemyDeath sees e.poiRef); a brief grace iframe lets
+// the player read the charge telegraph so the spawn-in-range first lunge can't
+// cheap-shot them. Re-spawn is gated on live-elite absence (see the proximity loop).
+function aggroPoi(p) {
+  if (scene !== "overworld") return;
+  const def = POI_TYPES[p.kind];
+  if (!def || p.cleared) return;
+  p.aggroed = true;
+  def.onInteract(p, poiApi);
+  player.iframe = Math.max(player.iframe || 0, 0.6); // grace to read the wind-up
+}
+
+// Shrine picker side-effects (shrineUi calls api.choose with the picked blessing).
+// Open the in-dungeon Field Kit vendor: 1-of-3 tier-scaled buffs, each costing at-risk
+// run coins. Stock is cached per depth so closing and reopening shows the SAME trio.
+function openFieldKit() {
+  if (!fieldKitChoices) {
+    const cost = 30 + dungeon.depth * 20;
+    fieldKitChoices = rollBuffChoices(dungeon.depth, 3, player.stats).map((c) => ({ ...c, cost }));
+  }
+  shrineUi.openShrine({ fieldKit: true }, fieldKitChoices);
+}
+const shrineApi = {
+  choose(p, blessing) {
+    if (p && p.fieldKit) {
+      // Field Kit purchase — coins only, mid-run: grant the buff but NEVER save here
+      // (the no-save-while-onRun invariant; a death restores the spent coins anyway).
+      if (player.coins < (blessing.cost || 0)) {
+        addToast("Not enough coins", "#ff9a6f");
+        return;
+      }
+      player.coins -= blessing.cost || 0;
+      player.grantDiveBuff(blessing.mods);
+      addToast(`Field Kit: ${blessing.label} — ${blessing.text} (until your next dive ends)`, blessing.color);
+      spawnBurst(player.x, player.y, 18, blessing.color, 220, 3.2, 0.6);
+      sfx.item();
+      shrineUi.close();
+      fieldKitChoices = null;
+      portals = portals.filter((pp) => pp.label !== "Field Kit"); // one purchase per depth
+      return;
+    }
+    player.grantDiveBuff(blessing.mods);
+    addToast(`Blessing of ${blessing.label} — ${blessing.text} (until your next dive ends)`, blessing.color);
+    spawnBurst(player.x, player.y, 18, blessing.color, 220, 3.2, 0.6);
+    addRing(player.x, player.y, player.r * 0.5, player.r * 3.4, 0.5, blessing.color, 4);
+    sfx.item();
+    shrineUi.close();
+    finishPoi(p);
   },
 };
 
@@ -438,8 +937,9 @@ function updatePickups(dt) {
     }
     if (dist(p.x, p.y, player.x, player.y) < player.r + 16) {
       if (p.kind === "coin") {
-        player.coins += p.amount;
-        addToast(`+${p.amount} coins`, "#ffd166");
+        const boosted = Math.round(p.amount * (metaBonuses().coinMult || 1)); // Greed upgrade
+        player.coins += boosted;
+        addToast(`+${boosted} coins`, "#ffd166");
         sfx.coin();
       } else {
         player.addItem(p.item);
@@ -492,6 +992,7 @@ function updateProjectiles(dt, level) {
       // Friendly shot: collide with enemies, route hits through the shared FX.
       for (const e of enemies) {
         if (e.dead) continue;
+        if (p.pierced && p.pierced.has(e)) continue; // Pierce: never re-hit a foe passed through
         if (dist(p.x, p.y, e.x, e.y) > p.r + e.r) continue;
         const crit = Math.random() < Math.min(0.95, player.stats.critChance);
         const dmg = crit ? Math.round(p.damage * 2) : p.damage;
@@ -527,6 +1028,27 @@ function updateProjectiles(dt, level) {
             from = best;
             jumps--;
           }
+        }
+        // NOVA (staff trait): the impact flowers into a chilling frost burst.
+        if (p.nova) {
+          const novaR = 80;
+          const novaDmg = Math.max(1, Math.round(p.damage * 0.45));
+          for (const o of enemies) {
+            if (o.dead || o === e) continue;
+            if (dist(e.x, e.y, o.x, o.y) > novaR + o.r) continue;
+            const na = Math.atan2(o.y - e.y, o.x - e.x);
+            const nd = o.takeHit(novaDmg, na, 120);
+            o.applyChill(1.6);
+            spawnHitFx([{ x: o.x, y: o.y, r: o.r, color: o.color, damage: nd, crit: false, killed: o.dead, dashStrike: false, frost: true, blocked: nd < novaDmg }]);
+          }
+          addRing(e.x, e.y, 12, novaR, 0.4, "#bfe8ff", 4);
+        }
+        // PIERCE (bow trait): punch through — weaker each foe, capped at 4 targets.
+        if (p.pierce) {
+          (p.pierced || (p.pierced = new Set())).add(e);
+          p.damage = Math.max(1, Math.round(p.damage * 0.75));
+          if (p.pierced.size >= 4) p.dead = true;
+          break; // one foe per frame; the shot keeps flying next frame
         }
         p.dead = true;
         break;
@@ -566,18 +1088,22 @@ function spawnEnemy() {
 // `depth` is an open-ended integer (1, 2, 3, ... no cap). Difficulty/rewards
 // scale with depth (see dungeonConfig). Descending keeps your gear + returnPos.
 function enterDungeon(depth, keepReturn = false) {
+  tutorial.note("dungeon");
   if (!keepReturn) {
     // Fresh dive from the overworld = the start of a new run.
     returnPos = { x: player.x, y: player.y };
     onRun = true;
     runDeepest = depth;
+    revivedThisRun = false; // a fresh run resets the once-per-run rewarded revive
     player.coins += metaBonuses().startCoins; // Reserves upgrade
     runSnapshot = { uids: new Set(player.inventory.map((i) => i.uid)), coins: player.coins };
   } else {
     // Descending deeper continues the same run.
     runDeepest = Math.max(runDeepest, depth);
   }
+  const prevBest = getDeepest();
   noteDepth(runDeepest); // record the goal-tracker's deepest-ever (account-wide)
+  if (getDeepest() > prevBest) portal.submitScore(getDeepest()); // new best → CrazyGames leaderboard (no-op off-portal / until a board is configured)
   notifyBounty("depth", runDeepest); // depth bounties — same safe banking point as noteDepth
   dungeon = new Dungeon(depth);
   scene = "dungeon";
@@ -592,11 +1118,19 @@ function enterDungeon(depth, keepReturn = false) {
   projectiles = [];
   const it = dungeon.interior;
   portals = [{ x: it.cx - 210, y: it.cy, r: 26, label: "Leave", room: dungeon.rooms[0] }];
+  // Field Kit — the in-run vendor: buy ONE tier-scaled dive buff with at-risk run
+  // coins (fresh stock each depth; run-scoped like shrine blessings, no mid-run saves).
+  portals.push({ x: it.cx + 210, y: it.cy, r: 26, label: "Field Kit", room: dungeon.rooms[0] });
+  fieldKitChoices = null;
   banner = { text: `${dungeon.biome.name} — Depth ${dungeon.depth}`, t: 2.8, safe: false };
   sfx.enterDungeon();
   // Don't persist mid-run: at-risk loot must NOT be banked by a reload. The
   // pre-dive loadout was already saved at camp; extraction/death save the result.
   if (!onRun) saveActiveChar();
+  // Midgame ad at the dungeon-entry "level transition" (a CrazyGames-approved beat).
+  // Fresh dives only (not descends), and never during onboarding — a brand-new player's
+  // first loop stays ad-free. adBreak self-gates on the 3-min interval and pauses/mutes.
+  if (!keepReturn && !tutorial.isActive()) runAdBreak();
 }
 
 // Dive one level deeper from a cleared dungeon, carrying gear forward.
@@ -615,11 +1149,13 @@ function exitDungeon() {
     const exCores = 1 + Math.floor(depth / 3);
     addCores(exCores);
     lastRunResult = { extracted: true, depth, shards: gained };
-    addToast(`Extracted from Depth ${depth} — loot secured  ·  +${gained} ✦  +${exCores} ✺`, "#7fd2ff");
     notifyBounty("extract", 1);
+    // Post-extract summary overlay — celebrates the extract + offers a REWARDED double.
+    extractSummary = { shards: gained, cores: exCores, depth };
   }
   onRun = false;
   runSnapshot = null;
+  player.clearDiveBuffs(); // shrine blessings are spent when the dive ends
   scene = "overworld";
   if (returnPos) {
     player.x = returnPos.x;
@@ -632,8 +1168,8 @@ function exitDungeon() {
   dungeon = null;
   portals = [];
   banner = { text: "Back in the wilds", t: 1.8, safe: false };
+  tutorial.note("diveEnd"); // onboarding: extract done → guide back to camp
   saveActiveChar();
-  runAdBreak(); // extracted — a natural between-runs ad beat
 }
 
 // Lose the run: dropped in a dungeon. Forfeit all loot picked up this run (and
@@ -663,7 +1199,9 @@ function loseRun() {
   }
   onRun = false;
   runSnapshot = null;
+  player.clearDiveBuffs(); // died ON a dive — the shrine blessing is spent
   respawnAtCamp();
+  tutorial.note("diveEnd"); // onboarding: the run ended (in death) — advance the arc
   runAdBreak(); // fell in the dungeon — a natural between-runs ad beat
 }
 
@@ -688,6 +1226,9 @@ function respawnAtCamp() {
   prevHp = player.hp;
   combo = 0;
   comboTimer = 0;
+  // NB: dive blessings are NOT cleared here. respawnAtCamp also handles overworld
+  // death (where you never dived) — clearing is done by loseRun/exitDungeon/
+  // finishVictory so a blessing survives a death in the wilds for your eventual dive.
   saveActiveChar();
 }
 
@@ -697,6 +1238,7 @@ function finishVictory() {
   victory = false;
   onRun = false;
   runSnapshot = null;
+  player.clearDiveBuffs(); // the dive is over — shrine blessing spent
   scene = "overworld";
   if (returnPos) {
     player.x = returnPos.x;
@@ -720,11 +1262,11 @@ function finishVictory() {
 
 function completeDungeon() {
   const reward = dungeon.cfg.reward;
-  const coins = reward.coins[0] + Math.floor(Math.random() * (reward.coins[1] - reward.coins[0] + 1));
+  const coins = Math.round((reward.coins[0] + Math.floor(Math.random() * (reward.coins[1] - reward.coins[0] + 1))) * (metaBonuses().coinMult || 1)); // Greed
   player.coins += coins;
   addToast(`Dungeon cleared!  +${coins} coins`, "#ffd166");
   // Frost Cores for the clear (account-wide, safe to bank mid-run like shards) + bounty.
-  const clearCores = 2 + Math.floor(dungeon.depth / 2);
+  const clearCores = 2 + Math.floor(dungeon.depth / 2) + (metaBonuses().bonusCores || 0); // Prospector
   addCores(clearCores);
   addToast(`+${clearCores} ✺ Frost Cores`, "#bfe8ff");
   notifyBounty("clears", 1);
@@ -876,6 +1418,18 @@ const debugApi = {
     resetBounties();
     addToast("Bounties rerolled", "#cdd5e2");
   },
+  spawnPoi: (kind = "shrine") => {
+    const x = player.x + 120;
+    const y = player.y;
+    // Same id scheme as real POIs (world.js) so a debug clear round-trips cleanly
+    // instead of leaving an orphan string in clearedPois.
+    world.pois.push({ id: `${kind}:${Math.round(x)}_${Math.round(y)}`, x, y, r: 34, kind, tier: world.tierAt(x, y), biome: world.biomeAt(x, y), found: true, cleared: false, aggroed: false });
+    addToast(`Spawned ${kind} POI`, "#9fd8ff");
+  },
+  activatePoi: () => {
+    const p = world.pois.find((q) => !q.cleared && POI_TYPES[q.kind] && POI_TYPES[q.kind].interact === "press");
+    if (p) interactPoi(p);
+  },
   get playerClass() {
     return player.class;
   },
@@ -903,10 +1457,36 @@ const debugApi = {
   },
 };
 
-// Boot at the title screen. Build a placeholder world/player so nothing is null,
-// but the player isn't committed until they pick a character.
-buildGameFor(getActive() || "drifter", getActive() ? getChar(getActive()) : null);
-scene = "menu";
+// Land DIRECTLY in gameplay (no menu first), per CrazyGames' launch rules. A FRESH
+// player (no saved character) starts as the beginner Drifter and gets the step-by-step
+// tutorial; a RETURNING player auto-resumes their last character. The title stays
+// reachable in-game (TAB at the home camp) to switch class / manage the stash.
+function realProgress(ch) {
+  return !!(ch && ((ch.items || []).length > 3 || (ch.coins || 0) > 0 || (ch.pois || []).length > 0));
+}
+function pickResumeClass() {
+  const active = getActive();
+  if (active && hasChar(active)) return active;
+  const chars = getChars();
+  return Object.keys(chars).find((c) => chars[c]) || null;
+}
+let bootFresh = false; // we tentatively started a fresh char (may be corrected by a late cloud save)
+{
+  const resume = pickResumeClass();
+  if (resume) {
+    // RETURNING player: build their character, but open the TITLE MENU first (switch class /
+    // transfer items / continue). Landing straight in gameplay is mandatory for FRESH players
+    // only (per CrazyGames); returning players get the menu. startCharacter sets the scene to
+    // overworld, so override it back to the menu here.
+    startCharacter(resume);
+    scene = "menu";
+  } else {
+    // FRESH player: land directly in gameplay with the step-by-step tutorial (no menu).
+    startCharacter("drifter");
+    tutorial.begin();
+    bootFresh = true;
+  }
+}
 
 window.__game = {
   get player() { return player; },
@@ -919,16 +1499,21 @@ window.__game = {
   get scene() { return scene; },
   get dungeon() { return dungeon; },
   get portals() { return portals; },
+  get pois() { return world.pois; },
   get projectiles() { return projectiles; },
   get fx() { return { parts: fx.parts, floaters: fx.floaters, rings: fx.rings, shake: fx.shake, hitStop: fx.hitStop, ambient, spawners, combo, comboTimer }; },
-  get run() { return { onRun, runDeepest, runSnapshot, lastRunResult, shards: getShards(), cores: getCores(), bounties: getBounties() }; },
+  get run() { return { onRun, runDeepest, runSnapshot, lastRunResult, shards: getShards(), cores: getCores(), bounties: getBounties(), daily: getDaily() }; },
   ui,
   metaUi,
   boardUi,
   forgeUi,
+  shrineUi,
+  dailyUi,
   menu,
-  debug,
-  debugApi,
+  tutorial,
+  // Dev-only cheat surface — exposed ONLY on localhost / ?debug so a player can't call
+  // debugApi.giveShards()/toggleGod()/etc. from the console on a real portal host.
+  ...(DEBUG_ENABLED ? { debug, debugApi } : {}),
   input,
   touch,
   portal,
@@ -953,6 +1538,7 @@ function frame(now) {
   if (dt > 0.05) dt = 0.05;
   update(dt);
   render();
+  syncGameplay(); // report active-play state to the portal SDK (overlay/pause/menu aware)
   requestAnimationFrame(frame);
 }
 
@@ -989,15 +1575,20 @@ function update(dt) {
     metaUi.close();
     boardUi.close();
     forgeUi.close();
+    shrineUi.close();
     if (ui.isOpen()) ui.close();
     else ui.openInventory();
   }
-  if (input.consumePress("escape")) {
-    if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
+  // TAB = back / exit (NOT Esc — the browser/portal reserves Esc to leave fullscreen).
+  // Closes any open overlay, else returns to the title from the HOME camp.
+  if (input.consumePress("tab")) {
+    if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || shrineUi.isOpen() || dailyUi.isOpen()) {
       ui.close();
       metaUi.close();
       boardUi.close();
       forgeUi.close();
+      shrineUi.close();
+      dailyUi.close();
     } else if (scene === "overworld" && world.inZone(world.safeZone, player.x, player.y)) {
       // At the HOME camp with nothing open — back to the title (saves). Towns are
       // outposts, not the quit point.
@@ -1013,10 +1604,20 @@ function update(dt) {
     nearQuartermaster = !player.dead && dist(player.x, player.y, world.quartermaster.x, world.quartermaster.y) < 72;
     nearBoard = !player.dead && dist(player.x, player.y, world.missionBoard.x, world.missionBoard.y) < 72;
     nearForge = !player.dead && dist(player.x, player.y, world.forge.x, world.forge.y) < 72;
+    // Daily Supply Drop crate: interactable only while today's drop is unclaimed.
+    world.supplyClaimable = dailyDropClaimable();
+    nearSupply = !player.dead && world.supplyClaimable && dist(player.x, player.y, world.supply.x, world.supply.y) < 72;
     nearTownShop = null;
+    nearTownQM = null;
     for (const t of world.towns) {
       if (!player.dead && dist(player.x, player.y, t.shop.x, t.shop.y) < 78) {
         nearTownShop = t;
+        break;
+      }
+      // Every town also hosts an Upgrades kiosk (towns are safe zones, so spending
+      // shards + the purchase save are as legal here as at the camp Quartermaster).
+      if (!player.dead && t.qm && dist(player.x, player.y, t.qm.x, t.qm.y) < 72) {
+        nearTownQM = t;
         break;
       }
     }
@@ -1035,10 +1636,38 @@ function update(dt) {
         break;
       }
     }
+    // Points of interest: discover (map/waypoint), auto-aggro mini-bosses, and
+    // pick the nearest "press" POI as the E target (first one within reach wins).
+    nearPoi = null;
+    for (const p of world.pois) {
+      if (player.dead) break;
+      const def = POI_TYPES[p.kind];
+      if (!def) continue;
+      // Roaming events (session POIs) re-arm a few minutes after being spent, so a
+      // long session keeps meeting fresh optional rewarded beats.
+      if (def.session && p.cleared && fxClock - (p.clearedAt || 0) > 300) {
+        p.cleared = false;
+        p.aggroed = false;
+      }
+      const d = dist(player.x, player.y, p.x, p.y);
+      if (d < def.reveal) p.found = true;
+      if (def.interact === "aggro") {
+        // Gate re-aggro on the ABSENCE of a live elite (not a one-way flag): if the
+        // elite is culled by a scene change without dying, the POI self-heals and
+        // re-arms on the next approach instead of latching uncompletable forever.
+        if (!p.cleared && d < p.r + 130 && !enemies.some((e) => e.poiRef === p)) aggroPoi(p);
+      } else if (def.interact === "contact") {
+        if (!p.cleared && d < p.r + player.r) interactPoi(p);
+      } else if (!p.cleared && !nearPoi && d < p.r + 36) {
+        nearPoi = p; // "press" target
+      }
+    }
   } else {
-    nearShop = nearElder = nearQuartermaster = nearBoard = nearForge = false;
+    nearShop = nearElder = nearQuartermaster = nearBoard = nearForge = nearSupply = false;
+    nearTownQM = null;
     nearTownShop = null;
     nearDungeon = hoverDungeon = null;
+    nearPoi = null;
     // Dungeon interactables — chest in a treasure room, fountain in a heal room.
     const droom = dungeon.currentRoom;
     const dit = dungeon.interior;
@@ -1048,22 +1677,34 @@ function update(dt) {
 
   // Is there anything E would act on right now? Drives the touch E button's visibility.
   const nearPortal = scene === "dungeon" && !player.dead && portals.some((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
-  input.canInteract = !!(nearChest || nearFountain || nearPortal || nearElder || nearShop || nearTownShop || nearQuartermaster || nearBoard || nearForge || nearDungeon);
+  input.canInteract = !!(nearChest || nearFountain || nearPortal || nearElder || nearShop || nearTownShop || nearQuartermaster || nearBoard || nearForge || nearSupply || nearTownQM || nearPoi || nearDungeon);
   // Recall-to-camp is an overworld convenience (not from a dungeon dive) and pointless
   // when you're already in the camp safe zone — gates the touch CAMP button.
   input.canRecall = scene === "overworld" && !player.dead && !world.inZone(world.safeZone, player.x, player.y);
+  // Resting at the home camp: TAB opens the title menu — surface that (a faint desktop
+  // hint + the touch MENU button). Hidden during the tutorial so the card keeps focus.
+  input.canMenu = scene === "overworld" && !player.dead && world.inZone(world.safeZone, player.x, player.y) && !tutorial.isActive();
+  // Retention popup: surface the daily calendar ONCE per session — only for players past
+  // their first dungeon (never during onboarding), only at a calm overworld moment.
+  if (!dailyPopupShown && scene === "overworld" && !onRun && dailyDropClaimable() && !tutorial.isActive() && getDeepest() > 0 && !adOffer && !extractSummary && isActivelyPlaying()) {
+    dailyPopupShown = true;
+    dailyUi.openDaily();
+  }
 
   // Context action (E): shop / elder / quartermaster / enter dungeon / portals.
   if (input.consumePress("e")) {
-    if (metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
+    if (metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || shrineUi.isOpen() || dailyUi.isOpen()) {
       metaUi.close();
       boardUi.close();
       forgeUi.close();
+      shrineUi.close();
+      dailyUi.close();
     } else if (ui.isOpen() && ui.mode === "shop") ui.close();
     else if (scene === "dungeon") {
       const p = portals.find((pp) => pp.room === dungeon.currentRoom && dist(player.x, player.y, pp.x, pp.y) < player.r + pp.r);
       if (p) {
         if (p.label === "Descend") descendDungeon();
+        else if (p.label === "Field Kit") openFieldKit();
         else exitDungeon();
       } else if (nearChest) openChest();
       else if (nearFountain) useFountain();
@@ -1073,10 +1714,13 @@ function update(dt) {
     else if (nearQuartermaster) metaUi.openMeta();
     else if (nearBoard) boardUi.openBoard();
     else if (nearForge) forgeUi.openForge();
+    else if (nearSupply) dailyUi.openDaily();
+    else if (nearTownQM) metaUi.openMeta();
+    else if (nearPoi) interactPoi(nearPoi);
     else if (nearDungeon) enterDungeon(nearDungeon.tierIndex + 1);
   }
 
-  if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen()) {
+  if (ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || shrineUi.isOpen() || dailyUi.isOpen()) {
     recallTimer = 0;
     camera.follow(player, w, h, level.width, level.height);
     return;
@@ -1093,6 +1737,46 @@ function update(dt) {
   }
 
   // Won the final fight — pause on the victory screen until dismissed.
+  // Post-extract summary overlay — pauses the sim; offers a REWARDED double or continue.
+  if (extractSummary) {
+    const clicked = input.consumeClick();
+    if (clicked) {
+      const b = extractSummaryButtons(w, h);
+      const inR = (r) => input.mouseX >= r.x && input.mouseX <= r.x + r.w && input.mouseY >= r.y && input.mouseY <= r.y + r.h;
+      if (inR(b.double)) {
+        runDoubleAd();
+        return;
+      }
+      if (inR(b.cont)) {
+        extractSummary = null;
+        return;
+      }
+    }
+    if (input.isDown("r", "enter", " ")) extractSummary = null;
+    return;
+  }
+
+  // Roaming-event reward offer (Sky-Drop / Gilded) — same pause-gate pattern as the
+  // extract summary: accept via the button ONLY (keys always decline, so a mid-combat
+  // keyboard mash can never trigger an ad).
+  if (adOffer) {
+    const clicked = input.consumeClick();
+    if (clicked) {
+      const b = extractSummaryButtons(w, h);
+      const inR = (r) => input.mouseX >= r.x && input.mouseX <= r.x + r.w && input.mouseY >= r.y && input.mouseY <= r.y + r.h;
+      if (inR(b.double)) {
+        resolveAdOffer(true);
+        return;
+      }
+      if (inR(b.cont)) {
+        resolveAdOffer(false);
+        return;
+      }
+    }
+    if (input.isDown("r", "enter", " ")) resolveAdOffer(false);
+    return;
+  }
+
   if (victory) {
     if (victoryHold > 0) victoryHold -= dt;
     else if (input.consumeClick() || input.isDown("r", "enter", " ", "e")) finishVictory();
@@ -1101,7 +1785,28 @@ function update(dt) {
 
   if (player.dead) {
     recallTimer = 0; // don't leak a recall bar onto the death screen
-    if (input.consumeClick() || input.isDown("r", "enter", " ")) {
+    const canRevive = onRun && !revivedThisRun;
+    const clicked = input.consumeClick();
+    if (canRevive) {
+      // TWO buttons when a revive is offered — Revive (watch ad) and an explicit
+      // "Return to camp" decline (essential on touch: no keyboard R, and a stray tap
+      // must not forfeit). Geometry comes from hud.js gameOverButtons — the SAME rects
+      // drawGameOver renders (side-by-side on short landscape phones, stacked otherwise).
+      const b = gameOverButtons(w, h);
+      const inRect = (r) => input.mouseX >= r.x && input.mouseX <= r.x + r.w && input.mouseY >= r.y && input.mouseY <= r.y + r.h;
+      const inR = clicked && inRect(b.revive);
+      const inD = clicked && inRect(b.decline);
+      if (inR) {
+        runReviveAd();
+        return;
+      }
+      if (inD || input.isDown("r", "enter", " ")) {
+        loseRun(); // canRevive implies onRun
+        return;
+      }
+      return; // a stray click elsewhere must NOT forfeit while revive is offered
+    }
+    if (clicked || input.isDown("r", "enter", " ")) {
       if (onRun) loseRun();
       else respawnAtCamp();
     }
@@ -1140,6 +1845,24 @@ function update(dt) {
     spawnBurst(player.x - player.dashX * player.r, player.y - player.dashY * player.r, 6, "#dfe7f0", 150, 3, 0.35);
     addRing(player.x, player.y, player.r * 0.6, player.r * 2.4, 0.3, player.chainDash ? "#9fe3ff" : "#cfe0f0", 3);
   }
+  // Tutorial advances as a fresh player performs each action (note() self-gates).
+  if (player.isAttacking && !wasAttacking) tutorial.note("attack");
+  if (player.isDashing && !wasDashing) tutorial.note("dash");
+  // Dash-strike lesson: fires on the real thing — desktop (attack right after a dash)
+  // and the mobile double-tap lunge both end up in isDashStrike.
+  if (player.isDashStrike && player.attackTimer > 0 && !wasDashStrike) tutorial.note("lunge");
+  wasDashStrike = player.isDashStrike && player.attackTimer > 0;
+  if (Math.abs(input.axisX) > 0.2 || Math.abs(input.axisY) > 0.2) tutorial.note("move");
+  if (scene === "overworld" && world.inZone(world.safeZone, player.x, player.y)) tutorial.note("camp"); // reached camp after a run
+  // Onboarding: the camp is a safe zone with no foes, so for the attack step spawn ONE weak
+  // practice creature just south of camp — the red tutorial arrow points the new player to it.
+  if (scene === "overworld" && !tutorialFoeSpawned && tutorial.overworldGuide() === "enemy") {
+    tutorialFoeSpawned = true;
+    const cz = world.safeZone;
+    // The 4th arg is a stat SCALE (multiplier on the type's base) — keep it a weak dummy
+    // that dies in a couple of hits and barely stings, so a first fight feels good.
+    enemies.push(new Enemy(cz.x + cz.w / 2, cz.y + cz.h + 140, "gremlin", { hp: 0.25, dmg: 0.3 }));
+  }
   wasAttacking = player.isAttacking;
   wasDashing = player.isDashing;
 
@@ -1156,18 +1879,23 @@ function update(dt) {
     // Multishot (trait) fans out 2*spread+1 shots — each nudged sideways from the muzzle
     // so the spread reads clearly even point-blank; otherwise a single shot.
     const shots = [{ a: s.angle, o: 0 }];
+    const sideMult = s.sideMult || 1;
     for (let i = 1; i <= (s.spread || 0); i++) {
       shots.push({ a: s.angle - i * 0.17, o: -i * 13 }, { a: s.angle + i * 0.17, o: i * 13 });
     }
     const px = Math.cos(s.angle + Math.PI / 2);
     const py = Math.sin(s.angle + Math.PI / 2);
-    for (const sh of shots) {
-      const pr = makeProjectile(player.x + px * sh.o, player.y + py * sh.o, sh.a, s.speed, s.damage, s.magic ? "#9fd8ff" : "#ffe2a8", s.homing, s.r, "player");
+    shots.forEach((sh, i) => {
+      // Side shots on an EPIC multishot hit softer than the centre shot (sideMult<1).
+      const dmg = i === 0 ? s.damage : Math.max(1, Math.round(s.damage * sideMult));
+      const pr = makeProjectile(player.x + px * sh.o, player.y + py * sh.o, sh.a, s.speed, dmg, s.magic ? "#9fd8ff" : "#ffe2a8", s.homing, s.r, "player");
       pr.chill = s.chill || 0;
       pr.knockback = s.knockback || 80;
       pr.chain = s.chain || 0; // Chain (trait) — bounces remaining on hit
+      pr.pierce = !!s.pierce; // Pierce (trait) — punches through foes
+      pr.nova = !!s.nova; // Nova (trait) — frost burst on every hit
       projectiles.push(pr);
-    }
+    });
     player.pendingShot = null;
   }
 
@@ -1276,6 +2004,7 @@ function update(dt) {
 
   updateSpawners(gdt);
   updateToasts(dt);
+  tutorial.update(dt); // info steps auto-advance on real time (pauses with the sim)
   fxClock += dt;
   fx.update(dt);
   updateAmbient(dt, w, h);
@@ -1356,6 +2085,25 @@ function onEnemyDeath(e) {
   // Kill bounties — ONE call site that fires in both scenes (overworld + dungeon).
   notifyBounty("kills", 1);
   notifyBounty("kindKills", 1, e.type);
+  // A roaming mini-boss elite was slain — clear (and persist) its overworld POI.
+  if (e.poiRef) finishPoi(e.poiRef);
+  // Gilded Quarry felled: shower boosted spoils (always — never ad-or-nothing), then
+  // offer the rewarded "double the spoils" beat. Overworld-only by construction
+  // (gilded elites only spawn from an overworld POI).
+  if (e.gilded && scene === "overworld") {
+    const tier = e.poiRef ? e.poiRef.tier : world.tierAt(e.x, e.y);
+    grantGildedSpoils(e.x, e.y, tier);
+    adOffer = {
+      kind: "gilded",
+      tier,
+      x: e.x,
+      y: e.y,
+      title: "GILDED QUARRY FELLED",
+      sub: "Its hoard spills out — gear, coins and cores are yours.",
+      acceptLabel: "Double the spoils — watch a video",
+      declineLabel: "Take them and go",
+    };
+  }
   // Bomber bursts on death — whether it fused out or got killed first. AoE +
   // ring; only hurts the player if they're inside the blast.
   if (e.bomber) {
@@ -1409,7 +2157,19 @@ function render() {
   ctx.clearRect(0, 0, w, h);
 
   // Touch: route taps to the cursor whenever an overlay is up or no char is in play.
-  input.touchUi = scene === "menu" || ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || debug.isOpen() || (player && player.dead) || victory;
+  input.touchUi = scene === "menu" || ui.isOpen() || metaUi.isOpen() || boardUi.isOpen() || forgeUi.isOpen() || shrineUi.isOpen() || dailyUi.isOpen() || debug.isOpen() || (player && player.dead) || victory || !!extractSummary || !!adOffer;
+
+  // CrazyGames banner: show ONLY on non-gameplay screens (menu / game over / victory) —
+  // never over active gameplay. Toggle on state change so we don't spam the SDK's refresh limit.
+  // Banner ONLY on the victory screen — a rare, lingered-on "you won" screen (>5s). NOT
+  // the menu or the game-over screen: both have a quick continue/revive action (<5s), which
+  // CrazyGames disallows for banner placement.
+  const wantBanner = victory;
+  if (wantBanner !== bannerShown) {
+    bannerShown = wantBanner;
+    if (wantBanner) portal.showBanner();
+    else portal.clearBanner();
+  }
 
   // Title screen replaces the whole frame.
   const hintEl = document.getElementById("hint");
@@ -1421,7 +2181,7 @@ function render() {
   if (hintEl) hintEl.style.display = "";
 
   // Per-frame state bundle for the HUD/overlay draws (hud.js).
-  const view = { ctx, w, h, player, scene, dungeon, world, camera, touch, pickups, projectiles, portals, kills, mapMode, banner, toasts, itemPickups, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD };
+  const view = { ctx, w, h, player, scene, dungeon, world, camera, touch, enemies, pickups, projectiles, portals, kills, mapMode, banner, toasts, itemPickups, combo, comboTimer, spawners, ambient, input, onRun, runDeepest, fxClock, victory, recallTimer, recallHold: RECALL_HOLD, reviveAvailable: onRun && !revivedThisRun, tutorialHint: !!tutorial.overworldGuide(), tutorialActive: tutorial.isActive() };
 
   const shx = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
   const shy = fx.shake > 0.2 ? (Math.random() * 2 - 1) * fx.shake : 0;
@@ -1453,30 +2213,49 @@ function render() {
 
   drawLowHpVignette(view);
 
-  drawHud(view);
-  drawBanner(view);
-  drawToasts(view);
-  drawItemPickups(view);
+  // While a full-screen overlay owns the view (death / victory / extract), the HUD,
+  // banner, toasts and gear cards are NOT drawn — the overlay's headline was overlapping
+  // the boss bar / status rows on short screens, and their timers freeze with the sim
+  // anyway so nothing is lost.
+  const fullOverlay = !!extractSummary || !!adOffer || victory || player.dead;
+  if (!fullOverlay) {
+    drawHud(view);
+    if (!tutorial.isActive()) drawBanner(view); // the tutorial card owns the top-center; don't stack the banner under it
+    drawToasts(view);
+    drawItemPickups(view);
+  }
   drawDamageIndicator(view);
   drawCombo(view);
+  // Step-by-step tutorial card (fresh players) — above the HUD, below overlays.
+  if (!ui.isOpen() && !metaUi.isOpen() && !boardUi.isOpen() && !forgeUi.isOpen() && !shrineUi.isOpen() && !dailyUi.isOpen() && !player.dead && !victory && !extractSummary && !adOffer) tutorial.draw(view);
 
   if (scene === "dungeon") {
-    drawBossBar(view);
-    drawRoomMap(view);
-    const onPortal = portals.some((p) => p.room === dungeon.currentRoom && dist(player.x, player.y, p.x, p.y) < player.r + p.r);
-    if (onPortal && !ui.isOpen()) drawPrompt(view, "Press E to leave", "#bff0ff");
+    if (!fullOverlay) {
+      drawBossBar(view);
+      drawRoomMap(view);
+    }
+    const onPortal = portals.find((p) => p.room === dungeon.currentRoom && dist(player.x, player.y, p.x, p.y) < player.r + p.r);
+    if (onPortal && !ui.isOpen()) {
+      if (onPortal.label === "Descend") drawPrompt(view, `Press E to descend — Depth ${dungeon.depth + 1}`, "#ff9a6f");
+      else if (onPortal.label === "Field Kit") drawPrompt(view, `Press E — Field Kit: buy a blessing (◉${30 + dungeon.depth * 20})`, "#d98fff");
+      else drawPrompt(view, "Press E to extract — bank your loot", "#7CFC9B");
+    }
     else if (nearChest && !ui.isOpen()) drawPrompt(view, "Press E to open the chest", "#ffd166");
     else if (nearFountain && !ui.isOpen()) drawPrompt(view, "Press E to drink — heal up", "#7CFC9B");
   } else {
-    drawWaypoints(view); // touch wayfinder arrows to camp + towns (gated to touch devices)
-    if (!ui.isOpen() && !metaUi.isOpen() && !boardUi.isOpen() && !forgeUi.isOpen()) {
+    if (!fullOverlay) drawWaypoints(view); // touch wayfinder arrows (gated to touch devices)
+    if (!fullOverlay && !ui.isOpen() && !metaUi.isOpen() && !boardUi.isOpen() && !forgeUi.isOpen() && !shrineUi.isOpen() && !dailyUi.isOpen()) {
       if (nearElder) drawPrompt(view, "Press E — talk to the Elder", "#cdd5e2");
       else if (nearShop) drawPrompt(view, "Press E to shop", "#ffd166");
       else if (nearTownShop) drawPrompt(view, `Press E — shop at ${nearTownShop.name} (tier ${nearTownShop.tier})`, depthColor(nearTownShop.tier + 1));
       else if (nearQuartermaster) drawPrompt(view, "Press E — spend shards on upgrades", "#7fd2ff");
       else if (nearBoard) drawPrompt(view, "Press E — review bounties", "#ffd166");
       else if (nearForge) drawPrompt(view, "Press E — forge & upgrade gear", "#bfe8ff");
+      else if (nearSupply) drawPrompt(view, "Press E — claim today's supply drop", "#ffd166");
+      else if (nearTownQM) drawPrompt(view, "Press E — spend shards on upgrades", "#7fd2ff");
+      else if (nearPoi) drawPrompt(view, POI_TYPES[nearPoi.kind].label, POI_TYPES[nearPoi.kind].color);
       else if (nearDungeon) drawPrompt(view, `Press E to enter — ${BIOMES[nearDungeon.biome].name} (Depth ${nearDungeon.tierIndex + 1})`, depthColor(nearDungeon.tierIndex + 1));
+      if (input.canMenu) drawMenuHint(view); // faint "TAB = menu" reminder while resting at camp (desktop; touch gets a MENU button)
       if (hoverDungeon) drawEntranceTooltip(view, hoverDungeon);
       if (recallTimer > 0) drawRecall(view);
       if (mapMode !== "off") drawMap(ctx, mapMode, { world, player, enemies, camera, viewW: w, viewH: h });
@@ -1487,28 +2266,74 @@ function render() {
 
   if (player.dead) drawGameOver(view);
   if (victory) drawVictory(view);
-  if (ui.isOpen()) ui.render(ctx, w, h, player, input);
+  drawExtractSummary();
+  drawAdOffer();
+  if (ui.isOpen()) ui.render(ctx, w, h, player, input, shopApi);
   if (metaUi.isOpen()) metaUi.render(ctx, w, h, player, input);
   if (boardUi.isOpen()) boardUi.render(ctx, w, h, player, input, boardApi);
   if (forgeUi.isOpen()) forgeUi.render(ctx, w, h, player, input, forgeApi);
-  if (debug.isOpen()) debug.render(ctx, w, h, player, input, debugApi);
+  if (dailyUi.isOpen()) dailyUi.render(ctx, w, h, player, input, { claim: () => claimSupplyDrop() });
+  if (shrineUi.isOpen()) shrineUi.render(ctx, w, h, player, input, shrineApi);
+  if (DEBUG_ENABLED && debug.isOpen()) debug.render(ctx, w, h, player, input, debugApi);
 }
 
 
-// Boot: tell the portal we're loading, init it (no-op without an SDK), then reveal the
-// game by fading out the HTML splash. Nothing to preload (art/audio are procedural), so
-// this resolves fast — the splash mainly covers ES-module load + any SDK handshake.
+// Boot: reveal the menu as fast as possible — time-to-play is a conversion lever, so
+// the splash must NOT wait on the portal SDK (a slow/blocked SDK used to strand players
+// on the splash for up to 8s). Nothing needs preloading (art/audio are procedural), so we
+// drop the splash after the first painted frame and run the SDK handshake in the background.
 portal.onSettingsMute = (m) => setPortalMute(m); // honor the CrazyGames player's mute toggle
-portal.loadingStart();
-Promise.race([
-  portal.init().catch(() => {}), // degrade to no-op on SDK failure (no unhandled rejection)
-  new Promise((r) => setTimeout(r, 8000)), // never let a hung SDK init lock the splash
-]).finally(() => {
-  // The Data Module is ready now (if on CrazyGames) — pick up a cloud/cross-device save
-  // before the player picks a character. Safe at the title screen (nothing committed).
-  reloadFromStore();
-  portal.loadingStop();
+// (loadingStart is reported by portal.init() itself, AFTER SDK.init() resolves — calling
+// any SDK function earlier logs "CrazySDK is not initialized yet" per CrazyGames QA.)
+// The CrazyGames user logged in or out: the Data Module now fronts a DIFFERENT save store
+// (account vs per-guest). A clean reload is the correct reaction — the boot flow re-reads
+// the right store and adopts the right character, and the no-save-while-onRun rule means a
+// mid-run reload simply reverts to the pre-run save (nothing corrupts, the dive is forfeit).
+portal.onAuthChange = () => location.reload();
+let splashGone = false;
+const hideSplash = () => {
+  if (splashGone) return;
+  splashGone = true;
   const splash = document.getElementById("splash");
   if (splash) splash.classList.add("hidden");
+};
+requestAnimationFrame(() => requestAnimationFrame(hideSplash)); // as soon as the menu paints
+setTimeout(hideSplash, 600); // fallback so a backgrounded tab (rAF paused) still reveals fast
+// In the background: finish SDK init, then pick up any cloud/cross-device save (safe at the
+// title — nothing committed yet) and signal loading done. Capped so a hung SDK can't stall
+// the cloud-save pickup forever; the menu re-reads char state each frame so late arrivals show.
+Promise.race([
+  portal.init().catch(() => {}), // degrade to no-op on SDK failure (no unhandled rejection)
+  new Promise((r) => setTimeout(r, 8000)),
+]).finally(() => {
+  // Data Module IO is legal only once SDK.init() has resolved (portal.sdk set) — flip the
+  // gate BEFORE reloadFromStore so the cloud save is actually consulted.
+  if (portal.sdk) setCloudReady();
+  reloadFromStore();
+  portal.loadingStop();
+  // We auto-started into gameplay before init resolved; now the SDK is ready, so clear the
+  // guard and let syncGameplay() re-send the real gameplayStart (the earlier call no-op'd
+  // while the SDK wasn't ready). syncGameplay() itself checks the active-play state.
+  portal.inGameplay = false;
+  syncGameplay();
+  // Cross-device / cleared-localStorage: the import-time load() saw only localStorage; the
+  // cloud (Data Module) save arrives HERE. Adopt it when it names a different character —
+  // OR holds different progress for the one we built (a fresh boot masking a played cloud
+  // char, OR a stale local save about to clobber newer cross-device progress). Gated to the
+  // safe boot state (overworld, nothing at risk) so we never yank an active dive. We compare
+  // a cheap progress signature so an UNCHANGED returning player isn't needlessly rebuilt
+  // (which would snap them back to camp spawn).
+  if (!onRun && scene === "overworld") {
+    const cls = pickResumeClass();
+    const ch = cls ? getChar(cls) : null;
+    const sig = (coins, nItems, nPois) => `${coins | 0}:${nItems}:${nPois}`;
+    const cloudSig = ch ? sig(ch.coins, (ch.items || []).length, (ch.pois || []).length) : "";
+    const liveSig = sig(player.coins, player.inventory.length, player.clearedPois ? player.clearedPois.size : 0);
+    if (cls && (cls !== player.class || cloudSig !== liveSig)) {
+      startCharacter(cls);
+      if (realProgress(getChar(cls))) tutorial.stop(); // only kill onboarding for a truly played char
+      bootFresh = false;
+    }
+  }
 });
 requestAnimationFrame(frame);

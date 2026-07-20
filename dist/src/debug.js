@@ -46,7 +46,7 @@ export class DebugMenu {
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
     ctx.fillStyle = "#e9eef6";
-    ctx.font = "600 20px -apple-system, sans-serif";
+    ctx.font = "600 20px Fredoka, -apple-system, sans-serif";
     ctx.fillText("Debug menu", px + 20, py + 34);
 
     const cb = { x: px + pw - 36, y: py + 16, w: 22, h: 22 };
@@ -79,14 +79,14 @@ export class DebugMenu {
       if (started) cy += rowH; // clear the previous section's last button row
       started = true;
       ctx.fillStyle = "#7e8aa0";
-      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.font = "700 11px Fredoka, -apple-system, sans-serif";
       ctx.textAlign = "left";
       ctx.fillText(title.toUpperCase(), cx, cy + 10);
       cy += 18;
     };
 
     const button = (label, color, onClick) => {
-      ctx.font = "600 12px -apple-system, sans-serif";
+      ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
       const bw = ctx.measureText(label).width + 20;
       if (cx + bw > px + pw - pad) {
         cx = px + pad;
@@ -152,7 +152,7 @@ export class DebugMenu {
     }
 
     ctx.fillStyle = "#5d6678";
-    ctx.font = "500 12px -apple-system, sans-serif";
+    ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "left";
     ctx.fillText("Click a button to apply · ` or X to close", px + 20, py + ph - 12);
 

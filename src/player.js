@@ -148,6 +148,8 @@ export class Player {
     this.equipped = Object.fromEntries(SLOTS.map((s) => [s, null])); // weapon/armor/cloak/trinket
     this._prevMaxHp = undefined;
     this.metaBonus = metaBonuses(); // permanent upgrades bought with shards
+    this.diveBuffs = {}; // run-scoped shrine blessings — ephemeral, NOT serialized
+    this.clearedPois = new Set(); // overworld POIs this character has spent (persisted)
     this.recomputeStats(); // naked baseline
 
     if (profile && Array.isArray(profile.items)) {
@@ -205,6 +207,16 @@ export class Player {
     if (mb) {
       s.maxHp += mb.maxHp || 0;
       s.meleeDamage += mb.meleeDamage || 0;
+      s.damageReduction += mb.damageReduction || 0; // Hardened (clamped at use sites)
+      if (mb.dashCd) s.dashRest *= Math.max(0.4, 1 - mb.dashCd); // Momentum (lower = faster)
+    }
+    // Run-scoped dive buffs (Frost Shrine blessings) — a final additive/OR layer
+    // on top of gear + meta. Same merge contract; cleared on every dive exit.
+    if (this.diveBuffs) {
+      for (const [k, v] of Object.entries(this.diveBuffs)) {
+        if (typeof v === "boolean") s[k] = s[k] || v;
+        else s[k] = (s[k] || 0) + v;
+      }
     }
     // Floor the attack cooldown so stacked -cooldown gear can't zero/invert it.
     s.attackCooldown = Math.max(0.05, s.attackCooldown);
@@ -231,6 +243,21 @@ export class Player {
       this.hp = Math.min(this.hp, s.maxHp);
     }
     this._prevMaxHp = s.maxHp;
+  }
+
+  // Grant a run-scoped dive buff (shrine blessing). `mods` merge like gear:
+  // numbers ADD, booleans OR. Wiped by clearDiveBuffs on every dive exit.
+  grantDiveBuff(mods) {
+    for (const [k, v] of Object.entries(mods || {})) {
+      if (typeof v === "boolean") this.diveBuffs[k] = this.diveBuffs[k] || v;
+      else this.diveBuffs[k] = (this.diveBuffs[k] || 0) + v;
+    }
+    this.recomputeStats();
+  }
+  clearDiveBuffs() {
+    if (Object.keys(this.diveBuffs).length === 0) return;
+    this.diveBuffs = {};
+    this.recomputeStats();
   }
 
   addItem(item) {
@@ -263,13 +290,16 @@ export class Player {
   toProfile() {
     const equipped = {};
     for (const slot of SLOTS) equipped[slot] = this.equipped[slot] ? this.equipped[slot].uid : null;
-    return { coins: this.coins, items: this.inventory.slice(), equipped };
+    // `pois` = ids of overworld POIs this character has spent (plain strings, no
+    // uids → immune to bumpUid). diveBuffs are deliberately NOT serialized.
+    return { coins: this.coins, items: this.inventory.slice(), equipped, pois: [...this.clearedPois] };
   }
 
   // Restore a saved profile: items go straight into the bag (no auto-equip),
   // then the saved equipped slots are re-applied by uid.
   loadProfile(profile) {
     this.coins = profile.coins || 0;
+    this.clearedPois = new Set(Array.isArray(profile.pois) ? profile.pois : []);
     for (const it of profile.items) this.inventory.push(it);
     const eq = profile.equipped || {};
     for (const slot of SLOTS) {
@@ -423,7 +453,10 @@ export class Player {
         chill: wt === "staff" || this.stats.frostTouch ? 1.4 : 0,
         magic: wt === "staff",
         spread: trait === "multishot" ? 1 : 0, // # extra shots each side (1 => 3 total)
-        chain: trait === "chain" ? 2 : 0, // # of times each shot arcs to a new foe
+        sideMult: this.equipped.weapon && this.equipped.weapon.rarity === "legendary" ? 1 : 0.6, // epic multishot: weaker side shots
+        chain: trait === "chain" ? (this.equipped.weapon && this.equipped.weapon.rarity === "legendary" ? 2 : 1) : 0, // arcs per shot
+        pierce: trait === "pierce", // shots punch through foes
+        nova: trait === "nova", // each hit bursts into a chilling frost nova
       };
     } else if (wt === "mace") {
       // Heavy: wide cone that lands after a windup.
@@ -642,6 +675,9 @@ export class Player {
     this.traitFx.length = 0; // refilled below; main.js drains for trait visuals
     const trait = this.weaponTrait;
     const wid = this.equipped.weapon && this.equipped.weapon.id;
+    // Traited EPICS carry the classic identities at reduced strength — the legendary
+    // stays the full-power version of the same ability.
+    const lg = !!(this.equipped.weapon && this.equipped.weapon.rarity === "legendary");
     const frosty = !!this.stats.frostTouch || wid === "frostfang" || wid === "glacier_edge";
     const hits = [];
     const struck = []; // enemies hit by the cone (cleave splashes off these)
@@ -655,7 +691,11 @@ export class Player {
       let dmg = crit ? Math.round(this.atkDamage * 2) : this.atkDamage;
       // EXECUTE (dagger trait): finish off wounded, non-boss foes.
       const exec = trait === "execute" && !e.isBoss && e.hp <= e.maxHp * 0.35;
-      if (exec) dmg = Math.round(dmg * 2.2);
+      if (exec) dmg = Math.round(dmg * (lg ? 2.2 : 1.7));
+      // SHATTER (mace trait): chilled foes take hugely increased damage.
+      if (trait === "shatter" && e.chillTimer > 0) dmg = Math.round(dmg * (lg ? 1.75 : 1.4));
+      // AMBUSH (dagger trait): double damage to foes still at full health.
+      if (trait === "ambush" && e.hp >= e.maxHp) dmg = Math.round(dmg * (lg ? 2 : 1.6));
       const dealt = e.takeHit(dmg, this.facing, this.atkKnockback * (crit ? 1.4 : 1));
       if (this.stats.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + dealt * this.stats.lifesteal);
       if (this.stats.frostTouch && !e.dead) e.applyChill(1.4);
@@ -665,8 +705,8 @@ export class Player {
 
     // CLEAVE (sword trait): each struck foe splashes reduced damage to its neighbours.
     if (trait === "cleave" && struck.length) {
-      const splashR = 78;
-      const splashDmg = Math.round(this.atkDamage * 0.5);
+      const splashR = lg ? 78 : 64;
+      const splashDmg = Math.round(this.atkDamage * (lg ? 0.5 : 0.35));
       const seen = new Set(struck);
       for (const e of enemies) {
         if (e.dead || seen.has(e)) continue;
@@ -683,8 +723,8 @@ export class Player {
 
     // QUAKE (mace trait): the smash sends a 360° shockwave around you on impact.
     if (trait === "quake") {
-      const quakeR = 140;
-      const quakeDmg = Math.round(this.atkDamage * 0.6);
+      const quakeR = lg ? 140 : 110;
+      const quakeDmg = Math.round(this.atkDamage * (lg ? 0.6 : 0.42));
       const seen = new Set(struck);
       for (const e of enemies) {
         if (e.dead || seen.has(e)) continue;
@@ -694,6 +734,22 @@ export class Player {
         hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: false, killed: e.dead, dashStrike: false, frost: frosty, blocked: dealt < quakeDmg });
       }
       this.traitFx.push({ type: "ring", x: this.x, y: this.y, r: quakeR, color: "#ffd9a8" });
+    }
+
+    // TEMPEST (sword trait): every swing whips a 360° gale — lighter than quake but on
+    // a sword's cadence, and it shoves hard.
+    if (trait === "tempest") {
+      const galeR = 110;
+      const galeDmg = Math.round(this.atkDamage * 0.45);
+      const seen = new Set(struck);
+      for (const e of enemies) {
+        if (e.dead || seen.has(e)) continue;
+        if (Math.hypot(e.x - this.x, e.y - this.y) > galeR + e.r) continue;
+        const a = Math.atan2(e.y - this.y, e.x - this.x);
+        const dealt = e.takeHit(galeDmg, a, this.atkKnockback * 1.1);
+        hits.push({ x: e.x, y: e.y, r: e.r, color: e.color, damage: dealt, crit: false, killed: e.dead, dashStrike: false, frost: frosty, blocked: dealt < galeDmg });
+      }
+      this.traitFx.push({ type: "ring", x: this.x, y: this.y, r: galeR, color: "#bfe8ff" });
     }
 
     if (hits.length) {

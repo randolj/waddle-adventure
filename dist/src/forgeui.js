@@ -41,7 +41,15 @@ export class ForgeUI {
   render(ctx, w, h, player, input, api) {
     ctx.fillStyle = "rgba(8,10,18,0.66)";
     ctx.fillRect(0, 0, w, h);
-    const fit = fitScale(ctx, w, h, 720, 560, input);
+    // Three layouts (the dailyui/metaui pattern — reflow, don't shrink):
+    //  - desktop:           the original 720×560 ref, pixel-identical
+    //  - compact landscape: a squat 720×330 ref (landscape phones scaled the tall
+    //                       ref to ~0.52 → 7px text; the squat ref holds ~0.88)
+    //  - portrait:          a 420×660 ref — stacked full-width rows
+    const portrait = h > w;
+    const compact = !portrait && h < 480;
+    const mode = portrait ? "portrait" : compact ? "compact" : "desktop";
+    const fit = fitScale(ctx, w, h, portrait ? 420 : 720, portrait ? 660 : compact ? 330 : 560, input);
     w = fit.w;
     h = fit.h;
     const mx = fit.mx;
@@ -49,8 +57,8 @@ export class ForgeUI {
     const clicked = input.consumeClick();
     const hit = (x, y, bw, bh) => mx >= x && mx <= x + bw && my >= y && my <= y + bh;
 
-    const pw = Math.min(680, w - 48);
-    const ph = Math.min(520, h - 48);
+    const pw = Math.min(portrait ? 400 : compact ? 700 : 680, w - (portrait || compact ? 20 : 48));
+    const ph = Math.min(portrait ? 640 : compact ? 316 : 520, h - (portrait ? 20 : compact ? 12 : 48));
     const px = (w - pw) / 2;
     const py = (h - ph) / 2;
     rr(ctx, px, py, pw, ph, 14);
@@ -64,27 +72,34 @@ export class ForgeUI {
     ctx.textBaseline = "alphabetic";
     ctx.textAlign = "left";
     ctx.fillStyle = "#e9eef6";
-    ctx.font = "600 20px -apple-system, sans-serif";
-    ctx.fillText("The Forge", px + 22, py + 34);
+    ctx.font = `600 ${compact ? 17 : 20}px Fredoka, -apple-system, sans-serif`;
+    ctx.fillText("The Forge", px + 22, py + (compact ? 28 : 34));
     ctx.textAlign = "right";
-    ctx.font = "700 15px -apple-system, sans-serif";
+    ctx.font = "700 15px Fredoka, -apple-system, sans-serif";
     ctx.fillStyle = "#ffd166";
-    ctx.fillText(`◉ ${player.coins}`, px + pw - 120, py + 33);
+    ctx.fillText(`◉ ${player.coins}`, px + pw - 120, py + (compact ? 27 : 33));
     ctx.fillStyle = "#bfe8ff";
-    ctx.fillText(`✺ ${getCores()}`, px + pw - 46, py + 33);
+    ctx.fillText(`✺ ${getCores()}`, px + pw - 46, py + (compact ? 27 : 33));
 
-    // Close button.
-    const cb = { x: px + pw - 36, y: py + 14, w: 22, h: 22 };
+    // Close button (36px thumb target on phones; desktop keeps the original 22px).
+    const cbS = portrait || compact ? 36 : 22;
+    const cb = {
+      x: px + pw - (portrait || compact ? 44 : 36),
+      y: py + (portrait ? 8 : compact ? 4 : 14),
+      w: cbS,
+      h: cbS,
+    };
     ctx.fillStyle = hit(cb.x, cb.y, cb.w, cb.h) ? "rgba(255,90,90,0.9)" : "rgba(255,255,255,0.12)";
     rr(ctx, cb.x, cb.y, cb.w, cb.h, 5);
     ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 2;
+    const xi = cbS === 22 ? 6 : 12; // desktop X strokes stay at the original +6..+16
     ctx.beginPath();
-    ctx.moveTo(cb.x + 6, cb.y + 6);
-    ctx.lineTo(cb.x + 16, cb.y + 16);
-    ctx.moveTo(cb.x + 16, cb.y + 6);
-    ctx.lineTo(cb.x + 6, cb.y + 16);
+    ctx.moveTo(cb.x + xi, cb.y + xi);
+    ctx.lineTo(cb.x + cbS - xi, cb.y + cbS - xi);
+    ctx.moveTo(cb.x + cbS - xi, cb.y + xi);
+    ctx.lineTo(cb.x + xi, cb.y + cbS - xi);
     ctx.stroke();
     if (clicked && hit(cb.x, cb.y, cb.w, cb.h)) {
       this.close();
@@ -92,14 +107,19 @@ export class ForgeUI {
       return;
     }
 
-    // Tabs.
-    const tabs = [["forge", "Forge Legendary"], ["temper", "Temper"], ["reroll", "Reroll Affixes"]];
+    // Tabs (short labels + taller thumb targets on phones; desktop unchanged —
+    // tabY + tabH/2 lands on the original py+66 label baseline).
+    const tabs = portrait
+      ? [["forge", "Forge"], ["temper", "Temper"], ["reroll", "Reroll"]]
+      : [["forge", "Forge Legendary"], ["temper", "Temper"], ["reroll", "Reroll Affixes"]];
+    const tabW = portrait ? (pw - 44 - 16) / 3 : 132;
+    const tabY = py + (portrait ? 46 : compact ? 44 : 52);
+    const tabH = portrait || compact ? 36 : 28;
     let tx = px + 22;
     for (const [key, label] of tabs) {
-      const tw = 132;
       const active = this.tab === key;
       ctx.fillStyle = active ? "rgba(191,232,255,0.16)" : "rgba(255,255,255,0.05)";
-      rr(ctx, tx, py + 52, tw, 28, 6);
+      rr(ctx, tx, tabY, tabW, tabH, 6);
       ctx.fill();
       ctx.strokeStyle = active ? "#bfe8ff" : "rgba(255,255,255,0.12)";
       ctx.lineWidth = active ? 1.5 : 1;
@@ -107,28 +127,30 @@ export class ForgeUI {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = active ? "#bfe8ff" : "#8b97ab";
-      ctx.font = "600 12px -apple-system, sans-serif";
-      ctx.fillText(label, tx + tw / 2, py + 66);
-      if (clicked && hit(tx, py + 52, tw, 28)) {
+      ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
+      ctx.fillText(label, tx + tabW / 2, tabY + tabH / 2);
+      if (clicked && hit(tx, tabY, tabW, tabH)) {
         this.tab = key;
         this.scroll = 0;
       }
-      tx += tw + 8;
+      tx += tabW + 8;
     }
     ctx.textBaseline = "alphabetic";
 
-    const contentY = py + 96;
-    const contentH = ph - 96 - 30;
+    const contentTop = portrait ? 94 : compact ? 84 : 96;
+    const contentY = py + contentTop;
+    const contentH = ph - contentTop - (portrait ? 28 : compact ? 24 : 30);
 
-    if (this.tab === "forge") this.renderForge(ctx, px, contentY, pw, contentH, player, hit, clicked, api);
-    else this.renderItemList(ctx, px, contentY, pw, contentH, player, input, hit, clicked, api, mx, my);
+    if (this.tab === "forge") this.renderForge(ctx, px, contentY, pw, contentH, player, hit, clicked, api, mode);
+    else this.renderItemList(ctx, px, contentY, pw, contentH, player, input, hit, clicked, api, mx, my, mode);
 
     // Footer.
     ctx.textAlign = "left";
     ctx.fillStyle = "#6b7689";
-    ctx.font = "500 11px -apple-system, sans-serif";
+    ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
     const foot = this.tab === "forge" ? "Forge a legendary of your chosen weapon — its identity trait is guaranteed." : this.tab === "temper" ? "Temper raises an item's power and stat bonuses." : "Reroll an item's affixes for a fresh set.";
-    ctx.fillText(`${foot}   E or X to close.`, px + 22, py + ph - 12);
+    const footText = `${foot}   E or X to close.`;
+    ctx.fillText(portrait || compact ? clipText(ctx, footText, pw - 44) : footText, px + 22, py + ph - 12);
 
     if (clicked && !hit(px, py, pw, ph)) this.close();
     fit.done();
@@ -136,10 +158,84 @@ export class ForgeUI {
     ctx.textBaseline = "alphabetic";
   }
 
-  // Forge tab — five archetype cards.
-  renderForge(ctx, px, cy, pw, ch, player, hit, clicked, api) {
+  // Forge tab — five archetype cards. Desktop keeps the original 2-column grid;
+  // portrait stacks full-width cards; compact landscape lays 5 mini-cards across
+  // (the metaui.js compact pattern).
+  renderForge(ctx, px, cy, pw, ch, player, hit, clicked, api, mode) {
     const cores = getCores();
     const can = cores >= COST.forge.cores && player.coins >= COST.forge.coins;
+    if (mode === "portrait") {
+      // 5 full-width cards stacked (5×88 + 4×10 = 480 ≤ the 518px content area).
+      const cardW = pw - 44;
+      const cardH = 88;
+      ARCH.forEach((a, i) => {
+        const x = px + 22;
+        const y = cy + i * (cardH + 10);
+        const hov = hit(x, y, cardW, cardH);
+        ctx.fillStyle = hov && can ? "rgba(191,232,255,0.12)" : "rgba(255,255,255,0.05)";
+        rr(ctx, x, y, cardW, cardH, 9);
+        ctx.fill();
+        ctx.strokeStyle = can ? "rgba(203,178,74,0.6)" : "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = can ? 1 : 0.5;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ef9f27";
+        ctx.font = "700 15px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(WEAPON_TYPE_NAMES[a.wt], x + 14, y + 25);
+        const tr = WEAPON_TRAITS[a.trait];
+        ctx.fillStyle = "#ffd27a";
+        ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(clipText(ctx, `✦ ${tr.name}`, cardW - 28), x + 14, y + 47);
+        ctx.fillStyle = "#9aa6b1";
+        ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(clipText(ctx, tr.desc, cardW - 28), x + 14, y + 70);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#bfe8ff";
+        ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(`✺${COST.forge.cores}  ◉${COST.forge.coins}`, x + cardW - 12, y + 25);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = "left";
+        if (clicked && hov && api) api.forge(a.wt);
+      });
+      return;
+    }
+    if (mode === "compact") {
+      // 5 mini-cards across — the whole card is the tap target.
+      const gap = 10;
+      const cardW = (pw - 44 - gap * 4) / 5;
+      const cardH = Math.min(150, ch);
+      ARCH.forEach((a, i) => {
+        const x = px + 22 + i * (cardW + gap);
+        const y = cy;
+        const hov = hit(x, y, cardW, cardH);
+        ctx.fillStyle = hov && can ? "rgba(191,232,255,0.12)" : "rgba(255,255,255,0.05)";
+        rr(ctx, x, y, cardW, cardH, 9);
+        ctx.fill();
+        ctx.strokeStyle = can ? "rgba(203,178,74,0.6)" : "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = can ? 1 : 0.5;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ef9f27";
+        ctx.font = "700 13px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(clipText(ctx, WEAPON_TYPE_NAMES[a.wt], cardW - 20), x + 10, y + 22);
+        const tr = WEAPON_TRAITS[a.trait];
+        ctx.fillStyle = "#ffd27a";
+        ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(clipText(ctx, `✦ ${tr.name}`, cardW - 20), x + 10, y + 44);
+        ctx.fillStyle = "#9aa6b1";
+        ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(clipText(ctx, tr.desc, cardW - 20), x + 10, y + 64);
+        ctx.fillStyle = "#bfe8ff";
+        ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+        ctx.fillText(`✺${COST.forge.cores} ◉${COST.forge.coins}`, x + 10, y + cardH - 14);
+        ctx.globalAlpha = 1;
+        if (clicked && hov && api) api.forge(a.wt);
+      });
+      return;
+    }
+    // Desktop — the original 2-column grid, untouched.
     const cardW = (pw - 44 - 16) / 2;
     const cardH = 64;
     ARCH.forEach((a, i) => {
@@ -157,19 +253,19 @@ export class ForgeUI {
       ctx.globalAlpha = can ? 1 : 0.5;
       ctx.textAlign = "left";
       ctx.fillStyle = "#ef9f27";
-      ctx.font = "700 15px -apple-system, sans-serif";
+      ctx.font = "700 15px Fredoka, -apple-system, sans-serif";
       ctx.fillText(WEAPON_TYPE_NAMES[a.wt], x + 14, y + 24);
       ctx.fillStyle = "#ffd27a";
-      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       const tr = WEAPON_TRAITS[a.trait];
       ctx.fillText(`✦ ${tr.name}`, x + 14, y + 42);
       ctx.fillStyle = "#9aa6b1";
-      ctx.font = "500 10px -apple-system, sans-serif";
+      ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText(tr.desc, x + 14, y + 56);
       // cost, top-right
       ctx.textAlign = "right";
       ctx.fillStyle = "#bfe8ff";
-      ctx.font = "700 12px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText(`✺${COST.forge.cores}  ◉${COST.forge.coins}`, x + cardW - 12, y + 22);
       ctx.globalAlpha = 1;
       ctx.textAlign = "left";
@@ -178,12 +274,15 @@ export class ForgeUI {
   }
 
   // Temper / Reroll tabs — a scrollable inventory list with a per-row cost button.
-  renderItemList(ctx, px, cy, pw, ch, player, input, hit, clicked, api, mx, my) {
+  // Phone modes keep the same list, just reflowed: thumb-size (36px) buttons and
+  // per-mode row heights; desktop geometry untouched.
+  renderItemList(ctx, px, cy, pw, ch, player, input, hit, clicked, api, mx, my, mode) {
+    const phone = mode === "portrait" || mode === "compact";
     const cost = COST[this.tab];
     const cores = getCores();
-    const listX = px + 22;
-    const listW = pw - 44;
-    const rowH = 44;
+    const listX = px + (mode === "portrait" ? 16 : 22);
+    const listW = pw - (mode === "portrait" ? 32 : 44);
+    const rowH = mode === "portrait" ? 48 : mode === "compact" ? 40 : 44;
     const gap = 6;
     const rows = player.inventory.filter((it) => it.slot in player.equipped || it.affixes); // equippable gear
     const totalH = rows.length ? rows.length * (rowH + gap) - gap : 0;
@@ -200,7 +299,7 @@ export class ForgeUI {
       const ry = cy + i * (rowH + gap) - this.scroll;
       if (ry + rowH < cy || ry > cy + ch) return;
       const btnW = 96;
-      const btnH = 30;
+      const btnH = phone ? 36 : 30;
       const btnX = listX + listW - btnW - 10;
       const btnY = ry + (rowH - btnH) / 2;
       const hov = my >= cy && my <= cy + ch && hit(btnX, btnY, btnW, btnH);
@@ -218,11 +317,11 @@ export class ForgeUI {
       // name + power
       ctx.textAlign = "left";
       ctx.fillStyle = RARITIES[item.rarity].color;
-      ctx.font = "600 13px -apple-system, sans-serif";
-      ctx.fillText(clipText(ctx, item.name, listW - 200), listX + 44, ry + 19);
+      ctx.font = "600 13px Fredoka, -apple-system, sans-serif";
+      ctx.fillText(clipText(ctx, item.name, listW - (phone ? 158 : 200)), listX + 44, ry + (mode === "portrait" ? 20 : mode === "compact" ? 17 : 19));
       ctx.fillStyle = "#d8b06a";
-      ctx.font = "700 10px -apple-system, sans-serif";
-      ctx.fillText(`⚡ ${itemPower(item)}`, listX + 44, ry + 33);
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+      ctx.fillText(`⚡ ${itemPower(item)}`, listX + 44, ry + (mode === "portrait" ? 36 : mode === "compact" ? 32 : 33));
       // cost button
       ctx.fillStyle = hov && can ? "#3b6f9a" : "rgba(191,232,255,0.14)";
       rr(ctx, btnX, btnY, btnW, btnH, 6);
@@ -231,7 +330,7 @@ export class ForgeUI {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = can ? "#dff1ff" : "#6b7689";
-      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
       ctx.fillText(`✺${cost.cores} ◉${cost.coins}`, btnX + btnW / 2, btnY + btnH / 2 + 1);
       ctx.textBaseline = "alphabetic";
       ctx.globalAlpha = 1;
@@ -244,7 +343,7 @@ export class ForgeUI {
     if (rows.length === 0) {
       ctx.textAlign = "center";
       ctx.fillStyle = "#5d6678";
-      ctx.font = "500 14px -apple-system, sans-serif";
+      ctx.font = "500 14px Fredoka, -apple-system, sans-serif";
       ctx.fillText("No gear to work on yet.", listX + listW / 2, cy + 40);
       ctx.textAlign = "left";
     }

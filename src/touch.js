@@ -33,18 +33,32 @@ export class TouchControls {
     canvas.addEventListener("touchcancel", (e) => this.onEnd(e), opts);
   }
 
+  // Compact scale for small phones — 1 on desktop-sized viewports, shrinking down to
+  // 0.72 on short screens so the button cluster doesn't crowd (or overlap) the sticks.
+  uiScale(w, h) {
+    return Math.max(0.72, Math.min(1, Math.min(w, h) / 480));
+  }
+
   // Logical-pixel layout, recomputed from the live viewport each query.
   // The E (interact) and CAMP (recall) buttons only appear when their action is valid.
   buttons(w, h) {
+    const s = this.uiScale(w, h);
+    // SHORT screens (landscape phones): the right-middle area collides with the portal's
+    // floating widgets + the HUD, so BAG joins the bottom cluster above E instead.
+    const shortScr = h < 430;
+    const bag = shortScr ? { x: w - 176 * s, y: h - 150 * s } : { x: w - 76 * s, y: h - 184 * s };
     return [
       // Top: hold to recall to camp — reuses the hold-R path (need + hold flagged).
-      { key: "r", label: "CAMP", x: w / 2, y: 42, r: 27, color: "#7CFC9B", need: "recall", hold: true },
-      { key: " ", label: "DASH", x: w - 74, y: h - 80, r: 46, color: "#7fd8ff" },
-      { key: "e", label: "E", x: w - 172, y: h - 60, r: 36, color: "#ffd166", need: "interact" },
-      { key: "i", label: "BAG", x: w - 76, y: h - 180, r: 30, color: "#c4a6ff" },
+      { key: "r", label: "CAMP", x: w / 2, y: 42 * s, r: 27 * s, color: "#7CFC9B", need: "recall", hold: true },
+      // Same top slot when AT camp (the two are mutually exclusive): tap → TAB → title menu.
+      { key: "tab", label: "MENU", x: w / 2, y: 42 * s, r: 27 * s, color: "#bfe3ff", need: "menu" },
+      { key: " ", label: "DASH", x: w - 74 * s, y: h - 80 * s, r: 46 * s, color: "#7fd8ff" },
+      { key: "e", label: "E", x: w - 176 * s, y: h - 62 * s, r: 36 * s, color: "#ffd166", need: "interact" },
+      { key: "i", label: "BAG", x: bag.x, y: bag.y, r: (shortScr ? 26 : 30) * s, color: "#c4a6ff" },
     ].filter((b) => {
       if (b.need === "interact") return this.input.canInteract;
       if (b.need === "recall") return this.input.canRecall;
+      if (b.need === "menu") return this.input.canMenu;
       return true;
     });
   }
@@ -72,7 +86,9 @@ export class TouchControls {
         this.touches.set(t.identifier, { role: "ui", x: p.x, y: p.y, sy: p.y, dragged: false });
         continue;
       }
-      const btn = this.buttons(w, h).find((b) => Math.hypot(p.x - b.x, p.y - b.y) <= b.r);
+      // +12px hit slop beyond the visual circle — thumbs are imprecise, and a near-miss
+      // must press the button rather than silently start an aim stick under it.
+      const btn = this.buttons(w, h).find((b) => Math.hypot(p.x - b.x, p.y - b.y) <= b.r + 12);
       if (btn) {
         if (btn.hold) this.input.injectHold(btn.key, true); // held until release
         else this.input.injectPress(btn.key);
@@ -181,8 +197,14 @@ export class TouchControls {
       if (rec.role === "move") move = rec;
       else if (rec.role === "aim") aim = rec;
     }
-    this.drawStick(ctx, move, w * 0.16, h * 0.74, "#cfe6ff");
-    this.drawStick(ctx, aim, w * 0.84, h * 0.74, "#ffd9a8");
+    // Home hints sit clear of the bottom-right button cluster (DASH/E/BAG) so nothing
+    // overlaps at rest — the live ring still appears wherever the thumb actually lands.
+    // On SHORT screens there's no clear spot for idle hints at all: draw the sticks
+    // only while actually engaged.
+    const s = this.uiScale(w, h);
+    const shortScr = h < 430;
+    if (!shortScr || move) this.drawStick(ctx, move, Math.max(120, w * 0.16), h - 190 * s, "#cfe6ff");
+    if (!shortScr || aim) this.drawStick(ctx, aim, w - 250 * s, h - 190 * s, "#ffd9a8");
 
     for (const b of this.buttons(w, h)) {
       const held = this.pressedBtns.has(b.key);
@@ -196,7 +218,7 @@ export class TouchControls {
       ctx.stroke();
       ctx.globalAlpha = held ? 1 : 0.85;
       ctx.fillStyle = held ? "#0c1018" : b.color;
-      ctx.font = "700 " + (b.r > 40 ? 16 : 13) + "px -apple-system, sans-serif";
+      ctx.font = "700 " + (b.r > 40 ? 16 : 13) + "px Fredoka, -apple-system, sans-serif";
       ctx.fillText(b.label, b.x, b.y + 1);
     }
     ctx.restore();
@@ -208,7 +230,7 @@ export class TouchControls {
     const oy = rec ? rec.oy : hy;
     ctx.globalAlpha = rec ? 0.4 : 0.18;
     ctx.beginPath();
-    ctx.arc(ox, oy, STICK_R, 0, Math.PI * 2);
+    ctx.arc(ox, oy, rec ? STICK_R : 44, 0, Math.PI * 2); // idle hint is smaller than the live ring
     ctx.lineWidth = 3;
     ctx.strokeStyle = color;
     ctx.stroke();

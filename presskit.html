@@ -6,55 +6,41 @@
 <title>Waddle's Quest — Press Kit / Cover Maker</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0b1020;
-    color: #cdd7ee;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 24px;
-    gap: 18px;
-  }
+  body { background: #0b1020; color: #cdd7ee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px; gap: 16px; }
   h1 { font-size: 18px; color: #eef7ff; font-weight: 800; }
-  .sub { font-size: 13px; color: #8fb6d6; margin-top: -10px; text-align: center; max-width: 640px; }
-  .controls {
-    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center;
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 12px; padding: 14px 18px;
-  }
+  .sub { font-size: 13px; color: #8fb6d6; margin-top: -8px; text-align: center; max-width: 720px; line-height: 1.5; }
+  .sub b { color: #cdd7ee; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 18px; }
   label { font-size: 12px; color: #9fb0c8; display: flex; flex-direction: column; gap: 4px; }
-  input, select {
-    background: #15294a; color: #eef7ff; border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 7px; padding: 7px 9px; font-size: 13px; width: 110px;
-  }
-  select { width: 220px; }
-  button {
-    background: #2f8f5a; color: #fff; border: none; border-radius: 8px;
-    padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
-  }
+  input, select { background: #15294a; color: #eef7ff; border: 1px solid rgba(255,255,255,0.15); border-radius: 7px; padding: 7px 9px; font-size: 13px; width: 110px; }
+  select { width: 210px; }
+  button { background: #2f8f5a; color: #fff; border: none; border-radius: 8px; padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
   button.secondary { background: rgba(255,255,255,0.1); }
   button:hover { filter: brightness(1.1); }
   .stage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .frame {
-    border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; overflow: hidden;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #000;
-    max-width: 92vw; max-height: 62vh;
-  }
-  canvas { display: block; max-width: 92vw; max-height: 62vh; }
+  .frame { border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #000; max-width: 92vw; max-height: 60vh; }
+  canvas { display: block; max-width: 92vw; max-height: 60vh; }
   .meta { font-size: 12px; color: #7e8aa0; }
   .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; justify-content: center; }
 </style>
 </head>
 <body>
   <h1>Waddle's Quest — Cover Maker</h1>
-  <p class="sub">Type the <b>exact</b> width &amp; height CrazyGames asks for, then Download PNG. The art reflows to fit any size/aspect. (Use it for the cover/thumbnail; for in-game screenshots, capture the real game and resize to the same exact size.)</p>
+  <p class="sub">Pick a <b>Design</b>, type the <b>exact</b> width &amp; height CrazyGames asks for, then Download PNG. The four story concepts are composed for <b>16:9</b> — use the 16:9 presets for those. <b>Classic</b> reflows to any aspect (square / portrait / 4:3).</p>
 
   <div class="controls">
+    <label>Design
+      <select id="design">
+        <option value="epic">④ Epic (cropped boss + slash + loot)</option>
+        <option value="boss">③ Boss + Treasure</option>
+        <option value="hero">① Hero (cute + action)</option>
+        <option value="loot">② Loot chase</option>
+        <option value="classic">Classic (reflows any size)</option>
+      </select>
+    </label>
     <label>Preset
       <select id="preset">
-        <option value="1920x1080">16:9 — 1920 × 1080</option>
+        <option value="1920x1080">16:9 — 1920 × 1080  (CrazyGames cover)</option>
         <option value="1280x720">16:9 — 1280 × 720</option>
         <option value="800x450">16:9 — 800 × 450</option>
         <option value="512x384">4:3 — 512 × 384</option>
@@ -64,7 +50,7 @@
     </label>
     <label>Width<input id="w" type="number" value="1920" min="16" max="8000" /></label>
     <label>Height<input id="h" type="number" value="1080" min="16" max="8000" /></label>
-    <label>Title<input id="title" type="text" value="Waddle's Quest" style="width:170px" /></label>
+    <label>Title<input id="title" type="text" value="Waddle's Quest" style="width:150px" /></label>
     <div class="row">
       <button id="download">⬇ Download PNG</button>
       <button id="variant" class="secondary">Shuffle look</button>
@@ -79,117 +65,217 @@
 <script>
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
-let seed = 3;
+// Live design space — set from the inputs each draw(); every helper/scene reads these.
+let W = 1920, H = 1080, TITLE = "Waddle's Quest", seed = 3;
 
-function rng(s) { let x = s * 1234567; return () => { x = (x * 16807) % 2147483647; return (x % 1000) / 1000; }; }
+// ---------- shared helpers ----------
+function rng(s){let x=s*997|0;return()=>{x=(x*16807)%2147483647;return(x%1000)/1000;};}
+function snow(ctx,seed,n){const r=rng(seed);ctx.fillStyle='rgba(224,240,255,0.7)';for(let i=0;i<n;i++){ctx.globalAlpha=0.15+r()*0.6;ctx.beginPath();ctx.arc(r()*W,r()*H,1.5+r()*4.5,0,7);ctx.fill();}ctx.globalAlpha=1;}
+function radial(ctx,x,y,r,c0,c1){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c0);g.addColorStop(1,c1);ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+function aurora(ctx,seed){ctx.save();ctx.globalCompositeOperation='lighter';const bands=[['rgba(75,227,176,0.16)',0.26,0.09],['rgba(176,108,255,0.12)',0.40,0.07],['rgba(120,200,255,0.11)',0.18,0.05]];for(const[col,yo,amp]of bands){ctx.strokeStyle=col;ctx.lineWidth=H*0.06;ctx.beginPath();for(let i=0;i<=48;i++){const x=i/48*W,y=H*yo+Math.sin(i*0.42+seed)*H*amp;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}ctx.restore();}
+function word(ctx,text,x,y,size,maxW,fill,stroke){ctx.font=`900 ${size}px 'Arial Black', Impact, -apple-system, sans-serif`;let m=ctx.measureText(text).width;if(m>maxW){size=size*maxW/m;ctx.font=`900 ${size}px 'Arial Black', Impact, -apple-system, sans-serif`;}ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineWidth=size*0.16;ctx.strokeStyle=stroke;ctx.strokeText(text,x,y);ctx.fillStyle=fill;ctx.fillText(text,x,y);return size;}
+function tag(ctx,text,x,y,size,color){ctx.font=`800 ${size}px -apple-system, sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';const pad=size*0.9,w=ctx.measureText(text).width+pad*2,h=size*2.1;ctx.fillStyle='rgba(8,14,26,0.72)';rr(ctx,x-w/2,y-h/2,w,h,h/2);ctx.fill();ctx.strokeStyle=color;ctx.lineWidth=size*0.14;rr(ctx,x-w/2,y-h/2,w,h,h/2);ctx.stroke();ctx.fillStyle=color;ctx.fillText(text,x,y);}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
 
-// ---- Penguin hero (adapted from the in-game menu art) ----
-function penguin(c, x, y, s) {
-  c.save(); c.translate(x, y); c.lineJoin = 'round'; c.strokeStyle = '#14110e';
-  // feet
-  c.fillStyle = '#d9821c'; c.lineWidth = s * 0.05;
-  for (const fx of [-s * 0.42, s * 0.42]) { c.beginPath(); c.ellipse(fx, s * 1.02, s * 0.34, s * 0.18, 0, 0, Math.PI * 2); c.fill(); c.stroke(); }
-  // body
-  c.fillStyle = '#2f5d4a'; c.lineWidth = s * 0.07;
-  c.beginPath(); c.ellipse(0, 0, s * 0.78, s, 0, 0, Math.PI * 2); c.fill(); c.stroke();
-  // belly
-  c.fillStyle = '#dfeee6'; c.beginPath(); c.ellipse(0, s * 0.22, s * 0.46, s * 0.62, 0, 0, Math.PI * 2); c.fill();
-  // scarf accent
-  c.strokeStyle = '#7fae8a'; c.lineWidth = s * 0.14;
-  c.beginPath(); c.moveTo(-s * 0.4, -s * 0.4); c.lineTo(s * 0.3, s * 0.22); c.moveTo(s * 0.4, -s * 0.4); c.lineTo(-s * 0.3, s * 0.22); c.stroke();
-  // eyes
-  c.fillStyle = '#f3efe6'; c.beginPath(); c.arc(-s * 0.26, -s * 0.5, s * 0.18, 0, Math.PI * 2); c.arc(s * 0.26, -s * 0.5, s * 0.18, 0, Math.PI * 2); c.fill();
-  c.fillStyle = '#14110e'; c.beginPath(); c.arc(-s * 0.22, -s * 0.5, s * 0.09, 0, Math.PI * 2); c.arc(s * 0.3, -s * 0.5, s * 0.09, 0, Math.PI * 2); c.fill();
-  // beak
-  c.fillStyle = '#d9821c'; c.strokeStyle = '#14110e'; c.lineWidth = s * 0.04;
-  c.beginPath(); c.moveTo(-s * 0.16, -s * 0.32); c.lineTo(s * 0.16, -s * 0.32); c.lineTo(0, -s * 0.14); c.closePath(); c.fill(); c.stroke();
-  // raised sword (right flipper)
-  c.save(); c.translate(s * 0.62, -s * 0.05); c.rotate(-0.7);
-  c.fillStyle = '#cfe0f0'; c.strokeStyle = '#14110e'; c.lineWidth = s * 0.045;
-  c.shadowColor = '#bfe8ff'; c.shadowBlur = s * 0.5;
-  c.fillRect(-s * 0.06, -s * 1.15, s * 0.12, s * 1.15); c.strokeRect(-s * 0.06, -s * 1.15, s * 0.12, s * 1.15);
-  c.shadowBlur = 0; c.fillStyle = '#b7913f';
-  c.fillRect(-s * 0.22, -s * 0.06, s * 0.44, s * 0.14); c.strokeRect(-s * 0.22, -s * 0.06, s * 0.44, s * 0.14);
-  c.restore();
-  c.restore();
-}
-
-function draw() {
-  const W = Math.max(16, +document.getElementById('w').value | 0);
-  const H = Math.max(16, +document.getElementById('h').value | 0);
-  const title = document.getElementById('title').value || "Waddle's Quest";
-  cv.width = W; cv.height = H;
-  const r = rng(seed);
-  const U = Math.min(W, H);
-  const wide = W / H >= 1.3;
-
-  // backdrop
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#10233f'); g.addColorStop(0.55, '#16315a'); g.addColorStop(1, '#0b1726');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-
-  // aurora ribbons
-  ctx.save(); ctx.globalCompositeOperation = 'lighter';
-  for (const [col, yoff, amp] of [['rgba(75,227,176,0.18)', 0.30, 0.10], ['rgba(176,108,255,0.14)', 0.42, 0.08], ['rgba(120,200,255,0.12)', 0.22, 0.06]]) {
-    ctx.strokeStyle = col; ctx.lineWidth = U * 0.06; ctx.beginPath();
-    for (let i = 0; i <= 40; i++) { const x = (i / 40) * W; const y = H * yoff + Math.sin(i * 0.5 + seed) * H * amp; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
+// ---------- penguin hero (expressive; pose: 'sword' | 'brave' | 'cheer') ----------
+function penguin(c,x,y,s,opt={}){
+  const pose=opt.pose||'sword', glow=opt.glow!==false;
+  c.save();c.translate(x,y);c.lineJoin='round';c.strokeStyle='#14110e';
+  if(opt.disc!==false){c.fillStyle='rgba(233,243,255,0.9)';c.beginPath();c.ellipse(0,s*1.12,s*1.35,s*0.34,0,0,7);c.fill();}
+  c.fillStyle='#d9821c';c.lineWidth=s*0.05;
+  for(const fx of[-s*0.42,s*0.42]){c.beginPath();c.ellipse(fx,s*1.02,s*0.34,s*0.18,0,0,7);c.fill();c.stroke();}
+  c.fillStyle='#2f5d4a';c.lineWidth=s*0.075;c.beginPath();c.ellipse(0,0,s*0.8,s,0,0,7);c.fill();c.stroke();
+  c.fillStyle='#e6f2ea';c.beginPath();c.ellipse(0,s*0.26,s*0.48,s*0.6,0,0,7);c.fill();
+  c.fillStyle='#d86a5a';c.strokeStyle='#14110e';c.lineWidth=s*0.04;
+  c.beginPath();c.ellipse(0,-s*0.12,s*0.6,s*0.2,0,0,Math.PI);c.fill();c.stroke();
+  c.fillStyle='#c15646';c.beginPath();c.moveTo(s*0.24,-s*0.06);c.lineTo(s*0.44,s*0.5);c.lineTo(s*0.2,s*0.44);c.closePath();c.fill();c.stroke();
+  c.strokeStyle='#14110e';
+  c.fillStyle='#f6f2e8';c.beginPath();c.arc(-s*0.27,-s*0.5,s*0.2,0,7);c.arc(s*0.27,-s*0.5,s*0.2,0,7);c.fill();
+  c.fillStyle='#14110e';c.beginPath();c.arc(-s*0.27,-s*0.47,s*0.11,0,7);c.arc(s*0.27,-s*0.47,s*0.11,0,7);c.fill();
+  c.fillStyle='#fff';c.beginPath();c.arc(-s*0.31,-s*0.51,s*0.04,0,7);c.arc(s*0.23,-s*0.51,s*0.04,0,7);c.fill();
+  c.strokeStyle='#1a1512';c.lineWidth=s*0.07;c.lineCap='round';
+  if(opt.happy){c.beginPath();c.arc(-s*0.27,-s*0.66,s*0.16,0.5,2.0);c.arc(s*0.27,-s*0.66,s*0.16,1.14,2.64);c.stroke();}
+  else if(opt.brow){c.beginPath();c.moveTo(-s*0.46,-s*0.78);c.lineTo(-s*0.12,-s*0.62);c.moveTo(s*0.46,-s*0.78);c.lineTo(s*0.12,-s*0.62);c.stroke();}
+  c.lineCap='butt';c.strokeStyle='#14110e';
+  c.fillStyle='#f0a02a';c.lineWidth=s*0.04;
+  if(opt.happy){c.beginPath();c.moveTo(-s*0.17,-s*0.28);c.lineTo(s*0.17,-s*0.28);c.lineTo(0,-s*0.02);c.closePath();c.fill();c.stroke();c.fillStyle='#8a2f1e';c.beginPath();c.moveTo(-s*0.1,-s*0.18);c.lineTo(s*0.1,-s*0.18);c.lineTo(0,-s*0.05);c.closePath();c.fill();}
+  else {c.beginPath();c.moveTo(-s*0.17,-s*0.3);c.lineTo(s*0.17,-s*0.3);c.lineTo(0,-s*0.1);c.closePath();c.fill();c.stroke();}
+  c.fillStyle='rgba(255,140,120,0.35)';c.beginPath();c.arc(-s*0.5,-s*0.28,s*0.13,0,7);c.arc(s*0.5,-s*0.28,s*0.13,0,7);c.fill();
+  if(pose==='sword'){
+    c.save();c.translate(s*0.66,-s*0.05);c.rotate(-0.7);
+    if(glow){c.shadowColor='#bfe8ff';c.shadowBlur=s*0.6;}
+    c.fillStyle='#dff1ff';c.strokeStyle='#14110e';c.lineWidth=s*0.045;
+    c.beginPath();c.moveTo(-s*0.09,0);c.lineTo(-s*0.09,-s*0.95);c.lineTo(0,-s*1.5);c.lineTo(s*0.09,-s*0.95);c.lineTo(s*0.09,0);c.closePath();c.fill();c.stroke();
+    c.shadowBlur=0;c.fillStyle='#c9a24a';c.fillRect(-s*0.24,-s*0.02,s*0.48,s*0.14);c.strokeRect(-s*0.24,-s*0.02,s*0.48,s*0.14);
+    c.strokeStyle='rgba(255,255,255,0.5)';c.lineWidth=s*0.02;c.beginPath();c.moveTo(0,-s*0.12);c.lineTo(0,-s*1.4);c.stroke();
+    c.restore();
+  } else if(pose==='brave'){
+    c.save();c.translate(s*0.7,s*0.05);c.rotate(-0.4);
+    if(glow){c.shadowColor='#bfe8ff';c.shadowBlur=s*0.4;}
+    c.fillStyle='#dff1ff';c.strokeStyle='#14110e';c.lineWidth=s*0.05;
+    c.beginPath();c.moveTo(-s*0.05,-s*0.7);c.lineTo(s*0.05,-s*0.7);c.lineTo(s*0.07,0);c.lineTo(-s*0.07,0);c.closePath();c.fill();c.stroke();
+    c.restore();
   }
-  ctx.restore();
-
-  // snow
-  ctx.fillStyle = 'rgba(220,238,255,0.6)';
-  for (let i = 0; i < Math.round(W * H / 9000); i++) { ctx.globalAlpha = 0.2 + r() * 0.5; ctx.beginPath(); ctx.arc(r() * W, r() * H, U * (0.002 + r() * 0.004), 0, Math.PI * 2); ctx.fill(); }
-  ctx.globalAlpha = 1;
-
-  // hero placement (left column when wide, top when stacked)
-  const heroS = wide ? H * 0.24 : U * 0.24;
-  const hx = wide ? W * 0.24 : W * 0.5;
-  const hy = wide ? H * 0.52 : H * 0.38;
-  // glow halo
-  const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, heroS * 2.4);
-  halo.addColorStop(0, 'rgba(127,210,255,0.25)'); halo.addColorStop(1, 'rgba(127,210,255,0)');
-  ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
-  // ground disc
-  ctx.fillStyle = 'rgba(233,243,255,0.9)'; ctx.beginPath(); ctx.ellipse(hx, hy + heroS * 1.05, heroS * 1.4, heroS * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-  penguin(ctx, hx, hy, heroS);
-
-  // wordmark — auto-fit so it never overruns its column / overlaps the hero
-  const maxTitleW = wide ? W * 0.52 : W * 0.88;
-  let fs = wide ? H * 0.17 : W * 0.14;
-  ctx.font = `900 ${fs}px 'Arial Black', -apple-system, sans-serif`;
-  const measured = ctx.measureText(title).width;
-  if (measured > maxTitleW) { fs = fs * maxTitleW / measured; ctx.font = `900 ${fs}px 'Arial Black', -apple-system, sans-serif`; }
-  const tx = wide ? W * 0.70 : W * 0.5;
-  const ty = wide ? H * 0.48 : H * 0.74;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-  ctx.lineWidth = fs * 0.12; ctx.strokeStyle = '#0c2236'; ctx.strokeText(title, tx, ty);
-  ctx.fillStyle = '#eef7ff'; ctx.fillText(title, tx, ty);
-  // tagline
-  ctx.font = `700 ${fs * 0.24}px -apple-system, sans-serif`;
-  ctx.fillStyle = '#8fc6ff';
-  ctx.fillText('A   P E N G U I N   R O G U E L I T E', tx, ty + fs * 0.64);
-
-  document.getElementById('meta').textContent = `${W} × ${H}px  ·  ${(W / H).toFixed(2)}:1`;
+  c.restore();
 }
-
-function syncPreset() {
-  const v = document.getElementById('preset').value;
-  if (v !== 'custom') { const [a, b] = v.split('x'); document.getElementById('w').value = a; document.getElementById('h').value = b; }
-  draw();
+function foe(c,x,y,s,col,eyes=2){
+  c.save();c.translate(x,y);
+  c.fillStyle='rgba(15,18,30,0.35)';c.beginPath();c.ellipse(0,s*0.7,s*0.9,s*0.28,0,0,7);c.fill();
+  c.fillStyle=col;c.strokeStyle='#14110e';c.lineWidth=s*0.08;c.lineJoin='round';
+  c.beginPath();const N=11;for(let i=0;i<=N;i++){const a=i/N*7,rr=(i%2?1:0.7)*s;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.closePath();c.fill();c.stroke();
+  c.fillStyle='#fff';for(let i=0;i<eyes;i++){const ex=(eyes===1?0:(i?1:-1))*s*0.28;c.beginPath();c.arc(ex,-s*0.08,s*0.16,0,7);c.fill();}
+  c.fillStyle='#14110e';for(let i=0;i<eyes;i++){const ex=(eyes===1?0:(i?1:-1))*s*0.28;c.beginPath();c.arc(ex,-s*0.08,s*0.08,0,7);c.fill();}
+  c.restore();
 }
-document.getElementById('preset').addEventListener('change', syncPreset);
-for (const id of ['w', 'h', 'title']) document.getElementById(id).addEventListener('input', () => { document.getElementById('preset').value = 'custom'; draw(); });
-document.getElementById('variant').addEventListener('click', () => { seed = (seed % 9) + 1; draw(); });
-document.getElementById('download').addEventListener('click', () => {
-  cv.toBlob((b) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(b);
-    a.download = `waddles-quest-cover-${cv.width}x${cv.height}.png`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }, 'image/png');
-});
+function loot(c,x,y,s,kind,glowc){
+  c.save();c.translate(x,y);c.shadowColor=glowc;c.shadowBlur=s*0.9;c.lineJoin='round';c.strokeStyle='#14110e';c.lineWidth=s*0.09;
+  if(kind==='sword'){c.fillStyle='#dff1ff';c.beginPath();c.moveTo(-s*0.12,-s);c.lineTo(s*0.12,-s);c.lineTo(s*0.16,s*0.4);c.lineTo(-s*0.16,s*0.4);c.closePath();c.fill();c.stroke();c.shadowBlur=0;c.fillStyle='#c9a24a';c.fillRect(-s*0.4,s*0.4,s*0.8,s*0.22);c.strokeRect(-s*0.4,s*0.4,s*0.8,s*0.22);}
+  else if(kind==='bow'){c.rotate(-0.5);c.shadowColor=glowc;c.strokeStyle='#8fd0a0';c.lineWidth=s*0.14;c.lineCap='round';c.beginPath();c.arc(-s*0.3,0,s*1.05,-1.15,1.15);c.stroke();c.shadowBlur=0;c.strokeStyle='#cfe0f0';c.lineWidth=s*0.04;c.beginPath();c.moveTo(s*0.62,-s*0.86);c.lineTo(s*0.62,s*0.86);c.stroke();c.strokeStyle='#e9eef6';c.lineWidth=s*0.06;c.beginPath();c.moveTo(-s*0.5,0);c.lineTo(s*0.62,0);c.stroke();c.fillStyle='#e9eef6';c.beginPath();c.moveTo(s*0.62,0);c.lineTo(s*0.42,-s*0.14);c.lineTo(s*0.42,s*0.14);c.closePath();c.fill();c.lineCap='butt';}
+  else if(kind==='gem'){c.fillStyle=glowc;c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.7,-s*0.2);c.lineTo(0,s);c.lineTo(-s*0.7,-s*0.2);c.closePath();c.fill();c.stroke();}
+  else if(kind==='coin'){c.fillStyle='#ffd166';c.beginPath();c.arc(0,0,s*0.7,0,7);c.fill();c.stroke();c.shadowBlur=0;c.fillStyle='#caa22a';c.font=`900 ${s*0.9}px Arial`;c.textAlign='center';c.textBaseline='middle';c.fillText('◈',0,s*0.02);}
+  c.restore();
+}
+function bossBlob(c,bx,by,bs,opt){
+  const body=(opt&&opt.body)||'#3d6f9e',ink=(opt&&opt.ink)||'#081524',eye=(opt&&opt.eye)||'#ff4a3a';
+  c.save();c.translate(bx,by);c.lineJoin='round';
+  c.fillStyle=body;c.strokeStyle=ink;c.lineWidth=bs*0.06;
+  const N=24;c.beginPath();for(let i=0;i<=N;i++){const a=i/N*7-1.57,rr=(i%2?1.12:0.68)*bs;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.closePath();c.fill();c.stroke();
+  c.save();c.beginPath();for(let i=0;i<=N;i++){const a=i/N*7-1.57,rr=(i%2?1.12:0.68)*bs;i?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.clip();
+  c.fillStyle='rgba(6,16,30,0.5)';c.beginPath();c.ellipse(0,bs*0.5,bs*1.4,bs*1.1,0,0,7);c.fill();
+  c.fillStyle='rgba(214,236,255,0.32)';c.beginPath();c.ellipse(-bs*0.3,-bs*0.35,bs*0.5,bs*0.4,0,0,7);c.fill();
+  c.restore();
+  c.shadowColor=eye;c.shadowBlur=bs*0.7;c.fillStyle=eye;
+  c.beginPath();c.ellipse(-bs*0.3,-bs*0.05,bs*0.17,bs*0.11,0.5,0,7);c.ellipse(bs*0.3,-bs*0.05,bs*0.17,bs*0.11,-0.5,0,7);c.fill();
+  c.shadowBlur=0;c.fillStyle='#2a0806';
+  c.beginPath();c.arc(-bs*0.3,-bs*0.03,bs*0.06,0,7);c.arc(bs*0.3,-bs*0.03,bs*0.06,0,7);c.fill();
+  c.strokeStyle=ink;c.lineWidth=bs*0.05;c.lineJoin='miter';
+  c.beginPath();for(let i=0;i<=6;i++){const x=(-0.4+i*0.135)*bs,y=(bs*0.3)+(i%2?bs*0.06:0);i?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();
+  c.restore();
+}
+function slashArc(c,x,y,r,rot,col){c.save();c.translate(x,y);c.rotate(rot);c.globalCompositeOperation='lighter';c.shadowColor=col;c.shadowBlur=r*0.4;c.fillStyle=col;c.beginPath();c.arc(0,0,r,-1.0,1.0);c.arc(0,0,r*0.7,1.0,-1.0,true);c.closePath();c.fill();c.beginPath();c.arc(0,-r*1.02,r*0.06,0,7);c.arc(0,r*1.02,r*0.05,0,7);c.fill();c.restore();}
+function impactFlash(c,x,y,s,col){c.save();c.translate(x,y);c.globalCompositeOperation='lighter';c.fillStyle=col;c.shadowColor=col;c.shadowBlur=s*0.7;for(const rot of[0,Math.PI/4]){c.save();c.rotate(rot);c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.15,0);c.lineTo(0,s);c.lineTo(-s*0.15,0);c.closePath();c.fill();c.restore();}c.fillStyle='#ffffff';c.beginPath();c.arc(0,0,s*0.26,0,7);c.fill();c.restore();}
+function lootFly(c,x,y,s,kind,glowc,ox,oy){const dx=x-ox,dy=y-oy,len=Math.max(1,Math.hypot(dx,dy)),ux=dx/len,uy=dy/len,tl=s*4.5;c.save();c.globalCompositeOperation='lighter';const g=c.createLinearGradient(x,y,x-ux*tl,y-uy*tl);g.addColorStop(0,glowc);g.addColorStop(1,'rgba(255,255,255,0)');c.strokeStyle=g;c.lineWidth=s*0.85;c.lineCap='round';c.beginPath();c.moveTo(x,y);c.lineTo(x-ux*tl,y-uy*tl);c.stroke();c.restore();loot(c,x,y,s,kind,glowc);}
+function chest(c,x,y,s,open){
+  c.save();c.translate(x,y);c.lineJoin='round';c.strokeStyle='#2a1c0e';c.lineWidth=s*0.09;
+  c.fillStyle='rgba(8,6,14,0.5)';c.beginPath();c.ellipse(0,s*1.05,s*1.65,s*0.42,0,0,7);c.fill();
+  if(open){c.save();c.globalCompositeOperation='lighter';const bg=c.createLinearGradient(0,-s*2.4,0,0);bg.addColorStop(0,'rgba(255,205,100,0)');bg.addColorStop(1,'rgba(255,205,100,0.5)');c.fillStyle=bg;c.beginPath();c.moveTo(-s*0.5,0);c.lineTo(-s*1.3,-s*2.4);c.lineTo(s*1.3,-s*2.4);c.lineTo(s*0.5,0);c.closePath();c.fill();c.restore();}
+  c.fillStyle='#7a5230';c.fillRect(-s*1.2,-s*0.1,s*2.4,s*1.15);c.strokeRect(-s*1.2,-s*0.1,s*2.4,s*1.15);
+  if(open){c.fillStyle='#8a6038';c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.lineTo(-s*1.42,-s*1.2);c.lineTo(s*1.0,-s*1.2);c.lineTo(s*1.2,-s*0.1);c.closePath();c.fill();c.stroke();c.save();c.shadowColor='#ffd166';c.shadowBlur=s*1.1;c.fillStyle='#ffe08a';c.fillRect(-s*1.05,-s*0.06,s*2.1,s*0.4);c.restore();c.fillStyle='#ffd166';for(const gx of[-s*0.55,0,s*0.55]){c.beginPath();c.arc(gx,s*0.06,s*0.17,0,7);c.fill();}}
+  else {c.fillStyle='#8a6038';c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.quadraticCurveTo(0,-s*1.2,s*1.2,-s*0.1);c.closePath();c.fill();c.stroke();}
+  c.shadowColor='#ffd166';c.shadowBlur=s*0.7;c.strokeStyle='#ffd166';c.lineWidth=s*0.1;c.beginPath();c.moveTo(-s*1.2,-s*0.1);c.lineTo(s*1.2,-s*0.1);c.stroke();c.shadowBlur=0;
+  c.restore();
+}
+function windStreaks(c,seed,n,ang){const r=rng(seed);c.save();c.strokeStyle='#d6ecff';c.lineCap='round';const dx=Math.cos(ang),dy=Math.sin(ang);for(let i=0;i<n;i++){const x=r()*W,y=r()*H,l=8+r()*30;c.globalAlpha=0.08+r()*0.42;c.lineWidth=0.8+r()*1.8;c.beginPath();c.moveTo(x,y);c.lineTo(x+dx*l,y+dy*l);c.stroke();}c.restore();c.globalAlpha=1;}
+function shockRing(c,x,y,rad,col,alpha){c.save();c.globalAlpha=alpha;c.strokeStyle=col;c.lineWidth=Math.max(3,rad*0.028);c.lineJoin='round';c.shadowColor=col;c.shadowBlur=rad*0.16;c.beginPath();const N=72;for(let i=0;i<=N;i++){const a=i/N*Math.PI*2,rr=rad*(1+Math.sin(a*9)*0.028);i?c.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr):c.moveTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}c.closePath();c.stroke();c.restore();c.globalAlpha=1;}
+function godBeam(c,x,y,h,color){c.save();c.globalCompositeOperation='lighter';const g=c.createLinearGradient(x,y,x,y-h);g.addColorStop(0,color);g.addColorStop(1,'rgba(255,205,100,0)');c.fillStyle=g;c.beginPath();c.moveTo(x-h*0.05,y);c.lineTo(x-h*0.26,y-h);c.lineTo(x+h*0.26,y-h);c.lineTo(x+h*0.05,y);c.closePath();c.fill();for(const a of[-0.42,-0.16,0.16,0.42]){const rg=c.createLinearGradient(x,y,x+Math.sin(a)*h,y-Math.cos(a)*h);rg.addColorStop(0,'rgba(255,226,150,0.45)');rg.addColorStop(1,'rgba(255,205,100,0)');c.strokeStyle=rg;c.lineWidth=h*0.02;c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.sin(a)*h,y-Math.cos(a)*h);c.stroke();}c.restore();}
+function fgShard(c,x,y,s,rot,col){c.save();c.translate(x,y);c.rotate(rot);c.globalAlpha=0.55;c.fillStyle=col;c.strokeStyle='rgba(8,16,30,0.7)';c.lineWidth=s*0.06;c.lineJoin='round';c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.5,-s*0.1);c.lineTo(s*0.2,s);c.lineTo(-s*0.4,s*0.2);c.closePath();c.fill();c.stroke();c.globalAlpha=0.2;c.fillStyle='#eaf6ff';c.beginPath();c.moveTo(0,-s);c.lineTo(s*0.5,-s*0.1);c.lineTo(0,-s*0.2);c.closePath();c.fill();c.restore();c.globalAlpha=1;}
+function heroLunge(c,x,y,s,ang){
+  c.save();c.globalCompositeOperation='lighter';
+  for(let i=0;i<6;i++){const o=(i-2.5)*s*0.32;c.strokeStyle='rgba(140,215,255,0.10)';c.lineWidth=s*0.06;c.beginPath();c.moveTo(x-s*3.1+o,y+s*1.7+o);c.lineTo(x-s*0.5+o,y+o*0.35);c.stroke();}
+  c.restore();
+  for(const gh of[[-s*1.9,s*1.08,0.16],[-s*1.0,s*0.55,0.28]]){c.save();c.translate(x+gh[0],y+gh[1]);c.rotate(ang);c.globalAlpha=gh[2];c.fillStyle='#79cfff';c.beginPath();c.ellipse(0,0,s*0.78,s,0,0,7);c.fill();c.restore();c.globalAlpha=1;}
+  const gl=c.createRadialGradient(x,y,0,x,y,s*2.3);gl.addColorStop(0,'rgba(120,200,255,0.30)');gl.addColorStop(1,'rgba(120,200,255,0)');c.fillStyle=gl;c.fillRect(x-s*2.5,y-s*2.5,s*5,s*5);
+  c.save();c.translate(x,y);c.rotate(ang);penguin(c,0,0,s,{pose:'sword',brow:true,disc:false});c.restore();
+}
+// Title split so a two-word title stacks nicely on the Hero layout.
+function titleLines(){const T=TITLE.toUpperCase(),sp=T.indexOf(' ');return sp>0?[T.slice(0,sp),T.slice(sp+1)]:[T,''];}
+
+// ---------- Designs ----------
+function heroScene(ctx){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#12356b');g.addColorStop(0.55,'#1b4f86');g.addColorStop(1,'#0c1e30');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  aurora(ctx,2);snow(ctx,7,150);
+  const hx=W*0.66,hy=H*0.56,s=H*0.34;
+  radial(ctx,hx,hy-H*0.05,s*3,'rgba(127,210,255,0.30)','rgba(127,210,255,0)');
+  foe(ctx,W*0.5,H*0.84,H*0.075,'#6f8a4a',2);foe(ctx,W*0.86,H*0.82,H*0.09,'#8a5a3a',2);
+  penguin(ctx,hx,hy,s,{pose:'sword',brow:true});
+  const cx=W*0.31,[l1,l2]=titleLines();
+  word(ctx,l1,cx,l2?H*0.4:H*0.5,H*0.2,W*0.56,'#f4faff','#0a1f36');
+  if(l2)word(ctx,l2,cx,H*0.6,H*0.24,W*0.5,'#ffd166','#5a3a0a');
+  tag(ctx,'⚔  PENGUIN ROGUELITE',cx,H*0.78,H*0.05,'#7fe0c0');
+}
+function lootScene(ctx){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#241a3a');g.addColorStop(0.5,'#3a2a52');g.addColorStop(1,'#160f24');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  radial(ctx,W*0.5,H*0.46,H*0.9,'rgba(255,196,90,0.34)','rgba(255,196,90,0)');snow(ctx,4,90);
+  const cx=W*0.5,cy=H*0.42;
+  loot(ctx,cx-W*0.2,cy-H*0.08,H*0.11,'sword','#bfe8ff');loot(ctx,cx+W*0.19,cy-H*0.05,H*0.1,'bow','#7fe0c0');
+  loot(ctx,cx-W*0.11,cy-H*0.2,H*0.06,'gem','#d98fff');loot(ctx,cx+W*0.1,cy-H*0.19,H*0.06,'gem','#7fd2ff');
+  loot(ctx,cx-W*0.02,cy-H*0.24,H*0.05,'coin','#ffd166');loot(ctx,cx+W*0.02,cy-H*0.12,H*0.045,'coin','#ffd166');
+  chest(ctx,cx,H*0.58,H*0.16,false);
+  penguin(ctx,W*0.2,H*0.66,H*0.2,{pose:'cheer',happy:true,disc:true});
+  word(ctx,'DIVE FOR LOOT',W*0.5,H*0.86,H*0.16,W*0.86,'#ffe08a','#3a2405');
+  tag(ctx,TITLE.toUpperCase()+'  ·  ROGUELITE',W*0.5,H*0.975,H*0.042,'#bfa0ff');
+}
+function bossScene(ctx){
+  const g=ctx.createRadialGradient(W*0.66,H*0.26,H*0.06,W*0.5,H*0.56,H*1.18);g.addColorStop(0,'#255288');g.addColorStop(0.55,'#12294c');g.addColorStop(1,'#060a14');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  aurora(ctx,5);
+  const bx=W*0.68,by=H*0.26,bs=H*0.2;
+  radial(ctx,bx,by,bs*3,'rgba(120,180,255,0.30)','rgba(120,180,255,0)');
+  shockRing(ctx,bx,by,bs*1.55,'#a8daff',0.55);shockRing(ctx,bx,by,bs*2.05,'#a8daff',0.24);
+  bossBlob(ctx,bx,by,bs);windStreaks(ctx,7,150,Math.PI*0.8);
+  const cxx=W*0.58,cyy=H*0.73;
+  radial(ctx,cxx,cyy-H*0.06,H*0.4,'rgba(255,190,80,0.3)','rgba(255,190,80,0)');
+  godBeam(ctx,cxx,cyy-H*0.04,H*0.46,'rgba(255,200,90,0.42)');
+  loot(ctx,cxx-W*0.05,cyy-H*0.2,H*0.044,'gem','#7fd2ff');loot(ctx,cxx+W*0.06,cyy-H*0.22,H*0.05,'gem','#d98fff');
+  loot(ctx,cxx-W*0.005,cyy-H*0.3,H*0.036,'coin','#ffd166');loot(ctx,cxx+W*0.11,cyy-H*0.11,H*0.032,'coin','#ffd166');
+  chest(ctx,cxx,cyy,H*0.1,true);
+  heroLunge(ctx,W*0.3,H*0.6,H*0.135,-0.42);
+  const vg=ctx.createLinearGradient(0,H*0.52,0,H);vg.addColorStop(0,'rgba(6,10,20,0)');vg.addColorStop(1,'rgba(6,10,20,0.92)');ctx.fillStyle=vg;ctx.fillRect(0,H*0.52,W,H*0.48);
+  fgShard(ctx,W*0.06,H*0.92,H*0.17,-0.3,'#3a6f9e');fgShard(ctx,W*0.95,H*0.88,H*0.22,0.42,'#2f5f8a');
+  word(ctx,TITLE.toUpperCase(),W*0.5,H*0.9,H*0.15,W*0.92,'#eef7ff','#0a1a2e');
+  tag(ctx,'⚔  SLAY THE HEART OF WINTER',W*0.5,H*0.975,H*0.038,'#8fd0ff');
+}
+function epicScene(ctx){
+  const g=ctx.createRadialGradient(W*0.52,H*0.16,H*0.06,W*0.5,H*0.6,H*1.2);g.addColorStop(0,'#3a2f78');g.addColorStop(0.5,'#1a1740');g.addColorStop(1,'#080614');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.globalCompositeOperation='lighter';
+  for(const[col,yo,amp]of[['rgba(150,90,230,0.16)',0.22,0.08],['rgba(90,200,220,0.12)',0.34,0.06],['rgba(120,120,255,0.10)',0.14,0.05]]){ctx.strokeStyle=col;ctx.lineWidth=H*0.07;ctx.beginPath();for(let i=0;i<=48;i++){const x=i/48*W,y=H*yo+Math.sin(i*0.4+3)*H*amp;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}ctx.restore();
+  const bx=W*0.55,by=H*0.12,bs=H*0.31;
+  radial(ctx,bx,by+bs*0.35,bs*2.4,'rgba(150,110,240,0.34)','rgba(150,110,240,0)');
+  bossBlob(ctx,bx,by,bs,{body:'#6f57b8',ink:'#160a2c',eye:'#ff5545'});windStreaks(ctx,11,150,Math.PI*0.82);
+  const cxx=W*0.77,cyy=H*0.72;
+  radial(ctx,cxx,cyy-H*0.05,H*0.34,'rgba(255,190,80,0.3)','rgba(255,190,80,0)');
+  godBeam(ctx,cxx,cyy-H*0.04,H*0.38,'rgba(255,200,90,0.4)');
+  lootFly(ctx,cxx-W*0.09,cyy-H*0.24,H*0.045,'gem','#7fd2ff',cxx,cyy);lootFly(ctx,cxx-W*0.03,cyy-H*0.31,H*0.05,'gem','#d98fff',cxx,cyy);
+  lootFly(ctx,cxx-W*0.14,cyy-H*0.15,H*0.036,'coin','#ffd166',cxx,cyy);lootFly(ctx,cxx+W*0.02,cyy-H*0.2,H*0.03,'coin','#ffd166',cxx,cyy);
+  chest(ctx,cxx,cyy,H*0.093,true);
+  heroLunge(ctx,W*0.26,H*0.58,H*0.13,-0.6);
+  slashArc(ctx,W*0.43,H*0.45,H*0.17,-0.7,'rgba(185,238,255,0.92)');
+  impactFlash(ctx,W*0.5,H*0.37,H*0.09,'#e6f5ff');
+  const vg=ctx.createLinearGradient(0,H*0.5,0,H);vg.addColorStop(0,'rgba(6,8,18,0)');vg.addColorStop(1,'rgba(6,8,18,0.92)');ctx.fillStyle=vg;ctx.fillRect(0,H*0.5,W,H*0.5);
+  fgShard(ctx,W*0.95,H*0.9,H*0.2,0.4,'#4a3f88');
+  word(ctx,TITLE.toUpperCase(),W*0.5,H*0.9,H*0.155,W*0.92,'#f4f7ff','#0a1226');
+  ctx.font=`800 ${Math.round(H*0.028)}px -apple-system, sans-serif`;ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillStyle='rgba(205,185,255,0.92)';
+  ctx.fillText('A   P E N G U I N   R O G U E L I T E',W*0.5,H*0.965);ctx.textAlign='left';
+}
+// Classic — the reflowing cover (hero left when wide, top when stacked). Works at ANY aspect.
+function classicScene(ctx){
+  const wide=W/H>=1.3,U=Math.min(W,H);
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#10233f');g.addColorStop(0.55,'#16315a');g.addColorStop(1,'#0b1726');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  aurora(ctx,seed);snow(ctx,seed+1,Math.round(W*H/9000));
+  const heroS=wide?H*0.24:U*0.24,hx=wide?W*0.24:W*0.5,hy=wide?H*0.5:H*0.38;
+  radial(ctx,hx,hy-U*0.04,heroS*2.6,'rgba(127,210,255,0.22)','rgba(127,210,255,0)');
+  penguin(ctx,hx,hy,heroS,{pose:'sword',brow:true});
+  const fs=wide?H*0.16:W*0.13,tx=wide?W*0.68:W*0.5,ty=wide?H*0.46:H*0.74;
+  word(ctx,TITLE.toUpperCase(),tx,ty,fs,wide?W*0.56:W*0.9,'#eef7ff','#0c2236');
+  ctx.font=`700 ${fs*0.22}px -apple-system, sans-serif`;ctx.fillStyle='#8fc6ff';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('A   P E N G U I N   R O G U E L I T E',tx,ty+fs*0.62);ctx.textAlign='left';
+}
+const DESIGNS = { epic: epicScene, boss: bossScene, hero: heroScene, loot: lootScene, classic: classicScene };
+
+// ---------- driver ----------
+const wIn=document.getElementById('w'),hIn=document.getElementById('h'),titleIn=document.getElementById('title'),designIn=document.getElementById('design'),presetIn=document.getElementById('preset'),meta=document.getElementById('meta');
+function draw(){
+  W=Math.max(16,+wIn.value|0);H=Math.max(16,+hIn.value|0);TITLE=titleIn.value||"Waddle's Quest";
+  cv.width=W;cv.height=H;
+  (DESIGNS[designIn.value]||classicScene)(ctx);
+  meta.textContent=`${W} × ${H}px  ·  ${(W/H).toFixed(2)}:1  ·  ${designIn.options[designIn.selectedIndex].text}`;
+}
+function syncPreset(){const v=presetIn.value;if(v!=='custom'){const[a,b]=v.split('x');wIn.value=a;hIn.value=b;}draw();}
+presetIn.addEventListener('change',syncPreset);
+designIn.addEventListener('change',draw);
+for(const el of [wIn,hIn,titleIn]) el.addEventListener('input',()=>{presetIn.value='custom';draw();});
+titleIn.addEventListener('input',draw); // title shouldn't flip the preset to custom
+document.getElementById('variant').addEventListener('click',()=>{seed=(seed%9)+1;draw();});
+document.getElementById('download').addEventListener('click',()=>{cv.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`waddles-${designIn.value}-${cv.width}x${cv.height}.png`;a.click();URL.revokeObjectURL(a.href);},'image/png');});
 draw();
 </script>
 </body>

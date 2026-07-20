@@ -27,10 +27,13 @@ export class Input {
     // True while a recall-to-camp is possible (overworld, alive, not already at camp)
     // — gates the touch CAMP button (set each frame by main.js).
     this.canRecall = false;
+    // True while resting AT the home camp (where TAB opens the title menu) — gates the
+    // touch MENU button + the desktop TAB hint (set each frame by main.js).
+    this.canMenu = false;
 
     // Keys the game consumes — preventDefault them (without a modifier) so Space/arrows
     // don't scroll the page / portal iframe, and they don't trip platform shortcuts.
-    const GAME_KEYS = new Set([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", "e", "i", "m", "r", "`"]);
+    const GAME_KEYS = new Set([" ", "arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", "e", "i", "m", "r", "tab", "`"]);
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
       if (GAME_KEYS.has(k) && !e.ctrlKey && !e.metaKey && !e.altKey) e.preventDefault();

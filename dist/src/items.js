@@ -33,6 +33,11 @@ export const WEAPON_TRAITS = {
   execute: { name: "Execute", desc: "Massive bonus damage to wounded foes." },
   multishot: { name: "Multishot", desc: "Looses a spread of three shots at once." },
   chain: { name: "Chain", desc: "Each shot arcs onward to another foe." },
+  tempest: { name: "Tempest", desc: "Every swing whips a gale that batters all around you." },
+  shatter: { name: "Shatter", desc: "Chilled foes take hugely increased damage." },
+  ambush: { name: "Ambush", desc: "Double damage to foes at full health." },
+  pierce: { name: "Pierce", desc: "Shots punch through foes, striking those behind." },
+  nova: { name: "Nova", desc: "Each hit bursts into a chilling frost nova." },
 };
 
 // `color` is used for the in-game art (blade tint / scarf fabric).
@@ -65,6 +70,24 @@ export const ITEM_TEMPLATES = [
   { id: "frost_wand", name: "Frost Wand", slot: "weapon", weaponType: "staff", rarity: "uncommon", color: "#6f7fb0", desc: "Seeks, then freezes.", mods: { meleeDamage: 24, attackCooldown: 0.06, knockback: 60, projSpeed: 380, projR: 9, frostTouch: true } },
   { id: "blizzard_scepter", name: "Blizzard Scepter", slot: "weapon", weaponType: "staff", rarity: "epic", color: "#8a6fce", desc: "A storm bound to a rod.", mods: { meleeDamage: 42, attackCooldown: 0, knockback: 80, projSpeed: 430, projR: 11, frostTouch: true } },
   { id: "aurora_scepter", name: "Aurora Scepter", slot: "weapon", weaponType: "staff", rarity: "legendary", color: "#cbb24a", trait: "chain", desc: "Cold leaps from foe to foe.", mods: { meleeDamage: 58, attackCooldown: -0.04, knockback: 90, projSpeed: 470, projR: 12, frostTouch: true } },
+
+  // --- Traited EPICS — the tier below the legendaries, carrying the classic identity
+  // traits at reduced strength (the effect sites scale by rarity). The affordable
+  // taste of a build-defining ability.
+  { id: "stormcut", name: "Stormcut Blade", slot: "weapon", weaponType: "sword", rarity: "epic", color: "#8a6fce", trait: "cleave", desc: "A lesser glacier-shard — its arc still bites the crowd.", mods: { meleeDamage: 44, attackRange: 36, attackCooldown: -0.16, knockback: 120, attackArc: 0.22 } },
+  { id: "breakwater", name: "Breakwater Maul", slot: "weapon", weaponType: "mace", rarity: "epic", color: "#8a6fce", trait: "quake", desc: "The ground remembers every blow.", mods: { meleeDamage: 70, attackRange: 26, attackCooldown: 0.22, knockback: 360, attackArc: 0.65, windup: 0.18, heavy: true } },
+  { id: "nightfangs", name: "Nightfangs", slot: "weapon", weaponType: "dagger", rarity: "epic", color: "#8a6fce", trait: "execute", desc: "They smell the wound before it closes.", mods: { meleeDamage: 16, attackRange: 17, attackCooldown: -0.24, knockback: 42, attackArc: 0.22, hitCount: 3, critChance: 0.1 } },
+  { id: "twinflight", name: "Twinflight Bow", slot: "weapon", weaponType: "bow", rarity: "epic", color: "#8a6fce", trait: "multishot", desc: "Two echoes ride beside every arrow.", mods: { meleeDamage: 44, attackCooldown: -0.05, knockback: 90, projSpeed: 760, projR: 7 } },
+  { id: "arcflow", name: "Arcflow Rod", slot: "weapon", weaponType: "staff", rarity: "epic", color: "#8a6fce", trait: "chain", desc: "The cold takes one extra step.", mods: { meleeDamage: 42, attackCooldown: -0.02, knockback: 70, projSpeed: 440, projR: 10, frostTouch: true } },
+
+  // --- Second LEGENDARY per archetype — brand-new identities. Found in the wild and
+  // the shop showcase; the Forge still guarantees the CLASSIC legendary (find() takes
+  // the first per archetype, so these must stay after the originals).
+  { id: "galehowl", name: "Galehowl", slot: "weapon", weaponType: "sword", rarity: "legendary", color: "#a8d8e8", trait: "tempest", desc: "The storm swings with you.", mods: { meleeDamage: 56, attackRange: 44, attackCooldown: -0.24, knockback: 200, attackArc: 0.24 } },
+  { id: "glacierheart", name: "Glacierheart", slot: "weapon", weaponType: "mace", rarity: "legendary", color: "#9fd0e8", trait: "shatter", desc: "First the frost. Then the fracture.", mods: { meleeDamage: 100, attackRange: 30, attackCooldown: 0.18, knockback: 420, attackArc: 0.7, windup: 0.16, heavy: true, frostTouch: true } },
+  { id: "first_fang", name: "First Fang", slot: "weapon", weaponType: "dagger", rarity: "legendary", color: "#d98fff", trait: "ambush", desc: "The opening cut decides the fight.", mods: { meleeDamage: 24, attackRange: 18, attackCooldown: -0.26, knockback: 55, attackArc: 0.24, hitCount: 3, critChance: 0.12 } },
+  { id: "longlight", name: "Longlight", slot: "weapon", weaponType: "bow", rarity: "legendary", color: "#ffe9b0", trait: "pierce", desc: "One shaft of dawn, straight through the ranks.", mods: { meleeDamage: 66, attackCooldown: -0.04, knockback: 130, projSpeed: 900, projR: 7 } },
+  { id: "winters_bloom", name: "Winter's Bloom", slot: "weapon", weaponType: "staff", rarity: "legendary", color: "#bfe8ff", trait: "nova", desc: "Every impact flowers into frost.", mods: { meleeDamage: 54, attackCooldown: -0.02, knockback: 100, projSpeed: 450, projR: 13, frostTouch: true } },
 
   // --- Cloaks / scarves (grant the dash) ---
   { id: "tattered_scarf", name: "Tattered Scarf", slot: "cloak", rarity: "common", color: "#9a3a3a", desc: "A short, scrappy dash.", mods: { dashEnabled: true, dashSpeed: 900, dashTime: 0.12, dashRest: -0.02 } },
@@ -322,6 +345,15 @@ export function rollShopStock(count = 6, rng = Math.random, tier = 0) {
       if (RARITY_ORDER.indexOf(cand.rarity) > RARITY_ORDER.indexOf(t.rarity)) t = cand;
     }
     stock.push({ item: rollItem(t, tier + 1), price: Math.round(RARITIES[t.rarity].price * (1 + tier * 0.15)) });
+  }
+  // SHOWCASE slot: a steeply-priced traited weapon to chase — an epic usually, a
+  // legendary sometimes at high tiers. Expensive on purpose (a coin sink + a tease);
+  // the Forge/drops remain the "earned" paths.
+  const showcase = ITEM_TEMPLATES.filter((t) => t.slot === "weapon" && t.trait && (t.rarity === "epic" || (tier >= 3 && t.rarity === "legendary")));
+  if (showcase.length && rng() < 0.7) {
+    const t = showcase[Math.floor(rng() * showcase.length)];
+    const mult = t.rarity === "legendary" ? 6 : 3.4;
+    stock.push({ item: rollItem(t, tier + 2), price: Math.round(RARITIES[t.rarity].price * mult * (1 + tier * 0.15)) });
   }
   return stock;
 }

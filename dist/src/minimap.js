@@ -2,6 +2,7 @@
 
 import { BIOMES } from "./biomes.js";
 import { roundRect as rr } from "./utils.js";
+import { POI_TYPES } from "./poi.js";
 
 const ICE = "#c6ced6";
 const OBST = "#5a5e68";
@@ -9,6 +10,8 @@ const SAFE_FILL = "rgba(120, 200, 140, 0.22)";
 const SAFE_BORDER = "rgba(70, 150, 90, 0.85)";
 const ENEMY = "#e24b4a";
 const PLAYER = "#ffd166";
+const POI_DOT = "#9fd8ff";
+const POI_DANGER = "#ff8a4a";
 const INK = "#14110e";
 
 // Draw the scaled world into a rect.
@@ -55,6 +58,25 @@ function renderInto(ctx, rx, ry, rw, rh, data, opts) {
     ctx.beginPath();
     ctx.arc(mx(t.cx), my(t.cy), 3, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Discovered points of interest — diamonds, one POI colour so they read as a
+  // single "something here" category vs the player arrow / creature dots / town
+  // dots (kind is conveyed in-world by the silhouette + the waypoint arrow).
+  // Roaming bosses get a warning orange so danger is legible at a glance; grey = spent.
+  for (const p of world.pois || []) {
+    if (!p.found) continue;
+    const def = POI_TYPES[p.kind];
+    const danger = def && def.interact === "aggro";
+    ctx.save();
+    ctx.translate(mx(p.x), my(p.y));
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = p.cleared ? "#5a6472" : danger ? POI_DANGER : POI_DOT;
+    ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 0.75;
+    ctx.strokeRect(-2.6, -2.6, 5.2, 5.2);
+    ctx.restore();
   }
 
   // Obstacles.
@@ -141,11 +163,11 @@ export function drawMap(ctx, mode, data) {
 
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#e6ecf4";
-    ctx.font = "600 18px -apple-system, sans-serif";
+    ctx.font = "600 18px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "left";
     ctx.fillText("Map", rx - 2, ry - 20);
     ctx.fillStyle = "#aeb8c6";
-    ctx.font = "500 12px -apple-system, sans-serif";
+    ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "right";
     ctx.fillText("M to close", rx + cw + 2, ry - 22);
 
@@ -154,11 +176,11 @@ export function drawMap(ctx, mode, data) {
     // Camp + town labels.
     const z = data.world.safeZone;
     ctx.fillStyle = "rgba(190,240,205,0.95)";
-    ctx.font = "600 12px -apple-system, sans-serif";
+    ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(z.name, rx + (z.x + z.w / 2) * s, ry + (z.y + z.h / 2) * s);
     ctx.fillStyle = "rgba(160,225,180,0.92)";
-    ctx.font = "600 11px -apple-system, sans-serif";
+    ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
     for (const t of data.world.towns) {
       ctx.fillText(`${t.name} · T${t.tier}`, rx + t.cx * s, ry + t.cy * s);
     }
@@ -166,13 +188,15 @@ export function drawMap(ctx, mode, data) {
     // Legend.
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = "500 12px -apple-system, sans-serif";
+    ctx.font = "500 12px Fredoka, -apple-system, sans-serif";
     let legX = rx;
     const legY = ry + ch + 22;
     const items = [
       [PLAYER, "You"],
       [ENEMY, "Creatures"],
       ["rgba(120,200,140,0.95)", "Camp / towns"],
+      [POI_DOT, "Points of interest"],
+      [POI_DANGER, "Roaming boss"],
     ];
     for (const [c, t] of items) {
       ctx.fillStyle = c;

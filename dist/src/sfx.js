@@ -16,18 +16,32 @@ function applyGain() {
 }
 
 function getCtx() {
-  if (!actx) {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx) return actx;
+  // Feature-detect: locked-down browsers / cross-origin iframes may strip WebAudio.
+  // Without this guard `new undefined()` would throw a TypeError on every gesture.
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try {
+    actx = new Ctx();
     master = actx.createGain();
     master.gain.value = silent() ? 0 : VOL;
     master.connect(actx.destination);
+  } catch (e) {
+    actx = null;
   }
   return actx;
 }
 
 export function resumeAudio() {
   const c = getCtx();
-  if (c.state === "suspended") c.resume();
+  // Anything not running needs a kick: "suspended" (autoplay policy) but ALSO iOS's
+  // non-standard "interrupted" state (phone call / control centre / backgrounding) —
+  // checking only "suspended" left mobile silent after an interruption.
+  if (c && c.state !== "running") {
+    try {
+      c.resume();
+    } catch (e) {}
+  }
 }
 export function toggleMute() {
   muted = !muted;

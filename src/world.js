@@ -1,6 +1,7 @@
 import { mulberry32, randRange, valueNoise, roughOutline, roughBlobPath } from "./utils.js";
 import { depthColor } from "./dungeon.js";
 import { BIOMES, BIOME_IDS } from "./biomes.js";
+import { POI_TYPES, POI_KINDS } from "./poi.js";
 
 const INK = "#191620";
 
@@ -45,6 +46,10 @@ export class World {
     // The Mission Board (bounties) and the Forge (crafting) — press E nearby.
     this.missionBoard = { x: width / 2 - 190, y: this.safeZone.y + 175, r: 30 };
     this.forge = { x: width / 2, y: height / 2 + 150, r: 30 };
+    // Daily Supply Drop crate (E-claim once/day; state + rewards live in meta/main —
+    // main.js mirrors claimability onto `this.supplyClaimable` each frame for the art).
+    this.supply = { x: width / 2 + 150, y: height / 2 + 150, r: 30 };
+    this.supplyClaimable = false;
 
     // Dungeon entrances scattered through the wilds, one per difficulty tier.
     // Biomes are laid out as rings around the camp: an inner Tundra circle, a
@@ -96,6 +101,7 @@ export class World {
           cy: ty,
           zone: { name, tier: s.tier, x: tx - w / 2, y: ty - h / 2, w, h },
           shop: { x: tx + 100, y: ty + 20, r: 34 },
+          qm: { x: tx - 100, y: ty + 20, r: 30 }, // Upgrades kiosk (E → Quartermaster panel)
         };
       });
 
@@ -169,6 +175,43 @@ export class World {
         pts.push({ x: last.x + Math.cos(a) * len, y: last.y + Math.sin(a) * len });
       }
       this.cracks.push({ pts, w: randRange(rng, 0.8, 1.8) });
+    }
+
+    // Points of interest scattered through the wilds (shrines / caches / roaming
+    // mini-bosses). Placed LAST so the obstacle/speck/crack rng stream above is
+    // byte-identical for a given seed; positions are deterministic (fixed seed),
+    // so a per-POI stable `id` survives across sessions for per-character clears.
+    this.pois = [];
+    for (const kind of POI_KINDS) {
+      const def = POI_TYPES[kind];
+      const want = def.place.count;
+      let made = 0;
+      let attempts = 0;
+      while (made < want && attempts < want * 14) {
+        attempts++;
+        const rx = randRange(rng, 220, width - 220);
+        const ry = randRange(rng, 220, height - 220);
+        if (this.inSafeZone(rx, ry, 130)) continue; // keep out of camp + towns
+        if (this.dungeons.some((dg) => Math.hypot(rx - dg.x, ry - dg.y) < 150)) continue;
+        if (this.pois.some((q) => Math.hypot(rx - q.x, ry - q.y) < 120)) continue; // declump
+        const res = this.resolve(rx, ry, 42); // push off rocks
+        if (this.inSafeZone(res.x, res.y, 130)) continue; // resolve can shove into a zone
+        const tier = this.tierAt(res.x, res.y);
+        if (tier < def.place.minTier || tier > def.place.maxTier) continue;
+        this.pois.push({
+          id: `${kind}:${Math.round(res.x)}_${Math.round(res.y)}`,
+          x: res.x,
+          y: res.y,
+          r: 34,
+          kind,
+          tier,
+          biome: this.biomeAt(res.x, res.y),
+          found: false,
+          cleared: false,
+          aggroed: false,
+        });
+        made++;
+      }
     }
   }
 
@@ -318,11 +361,40 @@ export class World {
       this.drawEntrance(ctx, dg);
     }
 
+    // Points of interest (under obstacles, so a rock can foreground them).
+    for (const p of this.pois) {
+      if (!visible(p.x, p.y, p.r + 60)) continue;
+      this.drawPoi(ctx, p);
+    }
+
     // Obstacles.
     for (const o of this.obstacles) {
       if (!visible(o.x, o.y, o.r + 10)) continue;
       this.drawObstacle(ctx, o);
     }
+  }
+
+  // A point of interest — shadow + the registry's per-kind silhouette + name.
+  drawPoi(ctx, p) {
+    const def = POI_TYPES[p.kind];
+    if (!def) return;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // Grounded shadow (every POI).
+    ctx.fillStyle = "rgba(20,24,38,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(0, p.r * 0.58, p.r * 0.95, p.r * 0.36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Kind silhouette (draws in local space; tints itself by p.tier where apt).
+    def.draw(ctx, p);
+    // Floating name label.
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = p.cleared ? "rgba(140,150,165,0.7)" : def.color;
+    ctx.fillText(def.name.toUpperCase(), 0, -p.r - 26);
+    ctx.textAlign = "left"; // GOTCHA: reset or it leaks into later HUD draws
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
   }
 
   drawEntrance(ctx, dg) {
@@ -378,7 +450,7 @@ export class World {
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#1a1610";
-    ctx.font = "700 14px -apple-system, sans-serif";
+    ctx.font = "700 14px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(`D${depth}`, x, by + 12);
@@ -407,13 +479,51 @@ export class World {
     // The shop stall.
     this.drawShopAt(ctx, t.shop.x, t.shop.y);
 
+    // The Upgrades kiosk — a shard-crystal signpost (E → the Quartermaster panel;
+    // towns are safe zones, so upgrade purchases are as legal here as at camp).
+    {
+      const { x, y } = t.qm;
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "#14110e";
+      ctx.lineWidth = 2;
+      ctx.fillStyle = "rgba(25,30,45,0.2)";
+      ctx.beginPath();
+      ctx.ellipse(x, y + 22, 22, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Post + crossboard.
+      ctx.fillStyle = "#6b4f30";
+      ctx.fillRect(x - 3, y - 26, 6, 48);
+      ctx.strokeRect(x - 3, y - 26, 6, 48);
+      ctx.fillStyle = "#7c6047";
+      ctx.fillRect(x - 22, y - 30, 44, 18);
+      ctx.strokeRect(x - 22, y - 30, 44, 18);
+      // Shard crystal on the board.
+      ctx.save();
+      ctx.shadowColor = "#7fd2ff";
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = "#7fd2ff";
+      ctx.beginPath();
+      ctx.moveTo(x, y - 27);
+      ctx.lineTo(x + 6, y - 21);
+      ctx.lineTo(x, y - 15);
+      ctx.lineTo(x - 6, y - 21);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = "#7fd2ff";
+      ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("UPGRADES", x, y - 38);
+      ctx.textAlign = "left";
+    }
+
     // Name + tier label.
     ctx.fillStyle = depthColor(t.tier + 1);
-    ctx.font = "700 20px -apple-system, sans-serif";
+    ctx.font = "700 20px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(`${t.name.toUpperCase()}`, t.cx, z.y + 30);
     ctx.fillStyle = "rgba(90, 110, 90, 0.7)";
-    ctx.font = "600 12px -apple-system, sans-serif";
+    ctx.font = "600 12px Fredoka, -apple-system, sans-serif";
     ctx.fillText(`safe town · tier ${t.tier}`, t.cx, z.y + 48);
     ctx.textAlign = "left";
   }
@@ -459,7 +569,7 @@ export class World {
     ctx.setLineDash([]);
     // Label.
     ctx.fillStyle = "rgba(60, 90, 60, 0.6)";
-    ctx.font = "600 22px -apple-system, sans-serif";
+    ctx.font = "600 22px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("CAMP — SAFE", z.x + z.w / 2, z.y + 32);
     ctx.textAlign = "left";
@@ -497,6 +607,65 @@ export class World {
     this.drawQuartermaster(ctx);
     this.drawMissionBoard(ctx);
     this.drawForge(ctx);
+    this.drawSupply(ctx);
+  }
+
+  // Daily Supply Drop — a roped wooden crate; glows + shows "!" while unclaimed today
+  // (main.js mirrors meta's claimability onto this.supplyClaimable each frame).
+  drawSupply(ctx) {
+    const { x, y } = this.supply;
+    const live = this.supplyClaimable;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.lineJoin = "round";
+    ctx.globalAlpha = live ? 1 : 0.55;
+    // Ground shadow.
+    ctx.fillStyle = "rgba(20,24,38,0.24)";
+    ctx.beginPath();
+    ctx.ellipse(0, 18, 24, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Crate body + planks.
+    if (live) {
+      ctx.shadowColor = "#ffd166";
+      ctx.shadowBlur = 12;
+    }
+    ctx.fillStyle = "#8a6238";
+    ctx.strokeStyle = "#14110e";
+    ctx.lineWidth = 2;
+    ctx.fillRect(-18, -14, 36, 30);
+    ctx.shadowBlur = 0;
+    ctx.strokeRect(-18, -14, 36, 30);
+    ctx.strokeStyle = "#5f421f";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-18, -14);
+    ctx.lineTo(18, 16);
+    ctx.moveTo(18, -14);
+    ctx.lineTo(-18, 16);
+    ctx.stroke();
+    // Rope band.
+    ctx.strokeStyle = "#c9a45a";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-18, 1);
+    ctx.lineTo(18, 1);
+    ctx.stroke();
+    // Claimable "!" beacon.
+    if (live) {
+      ctx.fillStyle = "#ffd166";
+      ctx.strokeStyle = "#14110e";
+      ctx.lineWidth = 2;
+      ctx.font = "800 20px Fredoka, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.strokeText("!", 0, -24);
+      ctx.fillText("!", 0, -24);
+    }
+    ctx.fillStyle = live ? "#ffd166" : "#7d8aa6";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("SUPPLY", 0, -44);
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   // Bounty board — a wooden notice board with pinned papers.
@@ -538,7 +707,7 @@ export class World {
       ctx.restore();
     }
     ctx.fillStyle = "#ffd166";
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("BOUNTIES", 0, -38);
     ctx.textAlign = "left";
@@ -595,7 +764,7 @@ export class World {
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#bfe8ff";
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("FORGE", 0, -28);
     ctx.textAlign = "left";
@@ -670,7 +839,7 @@ export class World {
 
     // Label.
     ctx.fillStyle = "rgba(60, 70, 90, 0.7)";
-    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("UPGRADES", 0, -r * 2.0);
     ctx.textAlign = "left";
@@ -761,7 +930,7 @@ export class World {
 
     // Label.
     ctx.fillStyle = "rgba(60, 70, 90, 0.7)";
-    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("ELDER", 0, -r * 2.0);
     ctx.textAlign = "left";
@@ -805,7 +974,7 @@ export class World {
     ctx.fillRect(sx - 22, sy - 24, 44, 18);
     ctx.strokeRect(sx - 22, sy - 24, 44, 18);
     ctx.fillStyle = "#ffd166";
-    ctx.font = "700 11px -apple-system, sans-serif";
+    ctx.font = "700 12px Fredoka, -apple-system, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("SHOP", sx, sy - 14);

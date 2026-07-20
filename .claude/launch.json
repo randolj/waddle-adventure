@@ -1,12 +1,1 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "penguin-poc",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["serve.py"],
-      "port": 5577,
-      "autoPort": true
-    }
-  ]
-}
+{"version":"0.0.1","configurations":[{"name":"waddle","runtimeExecutable":"python3","runtimeArgs":["serve.py"],"port":5577,"autoPort":true}]}
