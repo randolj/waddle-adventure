@@ -8,6 +8,8 @@
 
 const INK = "#140f1c";
 
+import { sprite } from "./sprites.js";
+
 export function applyEnemyArt(Enemy) {
   Object.assign(Enemy.prototype, {
     // Soft ground shadow, kept on the floor as the body bobs.
@@ -68,6 +70,24 @@ export function applyEnemyArt(Enemy) {
           ctx.stroke();
         }
       }
+
+      // Sprite override: enemy-<type>.png replaces the procedural body
+      // (spikes/blob/shading/feature/eyes). Shadow, legs, telegraph streaks,
+      // healer aura and every post-body overlay (shield arc, break fx, heal
+      // beam, hp bar) still compose around it. Behavior tells are approximated
+      // with filters: hurt/telegraph flash, chill desaturation, fuse blink.
+      const bodySprite = sprite("enemy-" + this.type);
+      if (bodySprite) {
+        const hgt = r * 2.5;
+        const wid = (bodySprite.naturalWidth / bodySprite.naturalHeight) * hgt;
+        ctx.imageSmoothingEnabled = bodySprite.naturalHeight > 128 || hgt < bodySprite.naturalHeight;
+        if (flash) ctx.filter = "brightness(1.7) saturate(1.3)";
+        else if (this.bomber && this.fuseT > 0 && Math.sin(this.wobble * (6 + (1 - this.fuseT / this.fuseTime) * 22)) > 0) ctx.filter = "brightness(1.5) sepia(0.35) saturate(1.6)";
+        else if (chilled) ctx.filter = "saturate(0.55) brightness(1.2)";
+        ctx.drawImage(bodySprite, -wid / 2, -hgt * 0.55, wid, hgt);
+        ctx.filter = "none";
+        ctx.imageSmoothingEnabled = true;
+      } else {
 
       // Spikes.
       if (this.spikeLen > 0) {
@@ -189,6 +209,7 @@ export function applyEnemyArt(Enemy) {
       }
 
       this.drawEyes(ctx, r, aspect, flash);
+      } // end procedural-body fallback (no sprite)
 
       // Shield-shatter burst + stun stars — the shielder's exposed window.
       if (this.shieldBreakFx > 0) {

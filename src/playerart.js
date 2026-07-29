@@ -1,5 +1,6 @@
 import { roughBlobPath } from "./utils.js";
 import { RARITIES } from "./items.js";
+import { sprite } from "./sprites.js";
 
 // Penguin art: body / weapon / armor / particle rendering + the rarity visual
 // helpers it needs. Mixed onto Player.prototype via applyPlayerArt() so player.js
@@ -411,6 +412,25 @@ export function applyPlayerArt(Player) {
     ctx.scale(flip, 1);
     ctx.lineJoin = "round";
 
+    // Sprite override: a penguin-<class>.png in assets/sprites/ replaces the
+    // whole procedural body+armor (scarf/auras/particles/weapons still draw
+    // around it). Height-normalized to the sim radius; flip mirrors facing.
+    const bodySprite = sprite("penguin-" + this.class);
+    if (bodySprite) {
+      const hgt = r * 2.9;
+      const wid = (bodySprite.naturalWidth / bodySprite.naturalHeight) * hgt;
+      // Small sources are PIXEL ART: nearest-neighbor keeps the pixels crisp
+      // when UPSCALED; minification always interpolates (nearest would decimate
+      // rows). Large painterly sources keep smooth interpolation both ways.
+      ctx.imageSmoothingEnabled = bodySprite.naturalHeight > 128 || hgt < bodySprite.naturalHeight;
+      if (flash) ctx.filter = "brightness(1.5) saturate(1.6) hue-rotate(-25deg)";
+      ctx.drawImage(bodySprite, -wid / 2, -hgt * 0.62, wid, hgt);
+      ctx.filter = "none";
+      ctx.imageSmoothingEnabled = true;
+      ctx.restore();
+      return;
+    }
+
     ctx.fillStyle = flash ? "#ff9a6b" : "#d9821c";
     ctx.strokeStyle = INK;
     ctx.lineWidth = 2;
@@ -615,6 +635,29 @@ export function applyPlayerArt(Player) {
 
   // Dispatch to the right weapon art by archetype.
   drawWeapon(ctx) {
+    // Sprite override: weapon-<templateId>.png beats weapon-<archetype>.png.
+    // The image points RIGHT with the grip ~15% from its left edge; it's drawn
+    // in the same rotated frame the procedural weapons use (rarity glow kept).
+    const w = this.equipped.weapon;
+    const wSprite = w && (sprite("weapon-" + w.id) || sprite("weapon-" + this.weaponType));
+    if (wSprite) {
+      const rk = rankOf(w);
+      const len = this.r * (this.weaponType === "dagger" ? 1.7 : 2.4) + rk * 2;
+      const hgt = (wSprite.naturalHeight / wSprite.naturalWidth) * len;
+      ctx.save();
+      ctx.rotate(this.swordAngle());
+      ctx.translate(this.r * 0.7, 0);
+      if (rk >= 2) {
+        ctx.shadowColor = rarityGlow(w);
+        ctx.shadowBlur = 6 + rk * 2;
+      }
+      // Pixel art: nearest only when upscaling; minification interpolates
+      // (nearest would decimate). Restored by ctx.restore().
+      ctx.imageSmoothingEnabled = wSprite.naturalHeight > 128 || len < wSprite.naturalWidth;
+      ctx.drawImage(wSprite, -len * 0.15, -hgt / 2, len, hgt);
+      ctx.restore();
+      return;
+    }
     switch (this.weaponType) {
       case "mace":
         return this.drawMace(ctx);
