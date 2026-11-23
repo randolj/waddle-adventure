@@ -1,5 +1,7 @@
 # Waddle's Quest
 
+The **Unity version** now lives in [waddles-quest-unity](https://github.com/randolj/waddles-quest-unity). This repository contains the original browser game.
+
 A top-down penguin roguelite. Pick a class, dive procedurally-scaling dungeons,
 extract your loot, and spend permanent shards on account-wide upgrades. Logo +
 favicon live in [assets/](assets/).
