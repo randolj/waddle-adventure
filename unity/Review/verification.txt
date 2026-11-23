@@ -1,0 +1,26 @@
+Unity 6000.3.15f1 / macOS standalone
+Fixed simulation ticks: 1/60 second
+Unique temporary PlayerPrefs key; cleaned after verification
+Native pause UI checked via computer use
+
+WADDLE_BUILD_OK 362875408 bytes
+WADDLE_CHECK: two gremlins and one charger initialized
+WADDLE_CHECK: exit locked and no save written during combat
+WADDLE_CHECK: one second of movement matches reference speed
+WADDLE_CHECK: diagonal movement is normalized
+WADDLE_CHECK: dash grants invulnerability
+WADDLE_CHECK: dash distance follows 18m/s over .12 seconds
+WADDLE_CHECK: dash-strike locks launch heading despite cursor change
+WADDLE_CHECK: outer wall blocks walking
+WADDLE_CHECK: cover pillar blocks walking
+WADDLE_CHECK: sword cone damages front enemy and excludes enemy behind
+WADDLE_CHECK: a swing resolves damage once
+WADDLE_CHECK: contact damage respects recovery invulnerability
+WADDLE_CHECK: pause gates simulation
+WADDLE_CHECK: room clear reveals chest without banking or granting per-kill loot
+WADDLE_CHECK: chest grants reward once
+WADDLE_CHECK: unextracted rewards remain unsaved
+WADDLE_CHECK: extract banks the room reward exactly once
+WADDLE_CHECK: bank survives serialized persistence round trip
+WADDLE_CHECK: loss forfeits carried loot and preserves bank
+WADDLE_SMOKE_OK 19 assertions

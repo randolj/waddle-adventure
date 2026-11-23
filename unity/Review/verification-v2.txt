@@ -1,0 +1,35 @@
+Unity 6000.3.15f1 / macOS release player
+Fixed simulation ticks: 1/60 second
+Isolated temporary save key; cleaned after verification
+Combat and chest opening/open states rendered and inspected
+Updated application opened; native pause UI verified
+No additional Tripo generations or credits used
+
+WADDLE_BUILD_OK 156736292 bytes
+WADDLE_CHECK: two gremlins and one charger initialized
+WADDLE_CHECK: exit locked and no save written during combat
+WADDLE_CHECK: one second of movement matches reference speed
+WADDLE_CHECK: diagonal movement is normalized
+WADDLE_CHECK: dash grants invulnerability
+WADDLE_CHECK: dash travels about 2.4m over the longer readable dash animation
+WADDLE_CHECK: dash-strike locks launch heading despite cursor change
+WADDLE_CHECK: outer wall blocks walking
+WADDLE_CHECK: cover pillar blocks walking
+WADDLE_CHECK: sword wind-up delays damage and preserves the committed swing direction
+WADDLE_CHECK: sword cone damages front enemy and excludes enemy behind
+WADDLE_CHECK: a swing resolves damage once
+WADDLE_CHECK: a press near recovery end buffers the next swing without requiring another click
+WADDLE_CHECK: contact damage respects recovery invulnerability
+WADDLE_CHECK: pause gates simulation
+WADDLE_CHECK: room clear reveals chest without banking or granting per-kill loot
+WADDLE_CHECK: chest animates before granting its reward
+WADDLE_CHECK: pause freezes chest animation and reward timing
+WADDLE_CHECK: chest remains open and grants reward once after animation
+WADDLE_CHECK: chest lid lifts above the box instead of rotating into it
+WADDLE_CHECK: unextracted rewards remain unsaved
+WADDLE_CHECK: extraction channel starts without prematurely saving loot
+WADDLE_CHECK: pause freezes extraction channel and banking
+WADDLE_CHECK: extract banks the room reward exactly once
+WADDLE_CHECK: bank survives serialized persistence round trip
+WADDLE_CHECK: loss forfeits carried loot and preserves bank
+WADDLE_SMOKE_OK 26 assertions

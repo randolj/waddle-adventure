@@ -1,0 +1,41 @@
+{
+  "repaired_unweighted_vertices": 0,
+  "name": "charger",
+  "height": 2.0,
+  "bones": [
+    "tripo::Root",
+    "tripo::Spine_0",
+    "tripo::Spine_1",
+    "tripo::Head_0",
+    "tripo::Head_1",
+    "tripo::Head_2",
+    "bone_6",
+    "tripo::Head_3",
+    "tripo::0_Left_Limb_0",
+    "tripo::0_Left_Limb_1",
+    "tripo::0_Left_Limb_2",
+    "tripo::0_Left_Limb_3",
+    "tripo::0_Left_Limb_4",
+    "tripo::0_Right_Limb_0",
+    "tripo::0_Right_Limb_1",
+    "tripo::0_Right_Limb_2",
+    "tripo::0_Right_Limb_3",
+    "tripo::0_Right_Limb_4",
+    "bone_18",
+    "tripo::1_Right_Limb_0",
+    "tripo::1_Right_Limb_1",
+    "tripo::1_Right_Limb_2",
+    "tripo::1_Right_Limb_3",
+    "bone_23",
+    "tripo::1_Left_Limb_0",
+    "tripo::1_Left_Limb_1",
+    "tripo::1_Left_Limb_2",
+    "tripo::1_Left_Limb_3",
+    "bone_28"
+  ],
+  "actions": [
+    "preset:quadruped:walk"
+  ],
+  "weighted_vertices": 8055,
+  "vertices": 8055
+}

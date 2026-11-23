@@ -1,0 +1,16 @@
+{
+  "task_id": "a504094b-95bd-4d9a-89e6-3f6fb0852a23",
+  "parameters": {
+    "input": "d80a20dd-21f2-4b06-a559-f8a75ebc64d9",
+    "animations": [
+      "preset:idle",
+      "preset:walk",
+      "preset:slash",
+      "preset:dive",
+      "preset:hurt"
+    ],
+    "out_format": "glb",
+    "animate_in_place": true
+  },
+  "credits_consumed": 50.0
+}

@@ -1,0 +1,85 @@
+Waddle’s Quest — Snowhaven / Frostwood
+Verified 2026-11-21 (America/New_York)
+Unity 6000.3.15f1 standalone macOS release build
+
+WADDLE_CHECK: normal entry area is a safe camp with the dungeon disabled
+WADDLE_CHECK: a fresh camp-to-vault trip starts a full-health fight against the three original enemies
+WADDLE_CHECK: two gremlins and one charger initialized
+WADDLE_CHECK: Waddle has a live skeletal graph with locomotion, sword, dash and hurt clips
+WADDLE_CHECK: Waddle renders a weighted mesh driven by the imported skeleton
+WADDLE_CHECK: sword is attached to the animated right-hand socket
+WADDLE_CHECK: sword action layer rotates the hand bone through the upper-body mask
+WADDLE_CHECK: upper-body sword layer preserves the locomotion pose of the feet
+WADDLE_CHECK: evaluated skinned Waddle retains the intended character scale (1.52m)
+WADDLE_CHECK: walking deforms the skinned mesh rather than moving a static model
+WADDLE_CHECK: charger has a live quadruped skeletal walk cycle
+WADDLE_CHECK: gremlin has a live weighted rig with head/spine reaction bones
+WADDLE_CHECK: gremlin has a live weighted rig with head/spine reaction bones
+WADDLE_CHECK: gremlin walk genuinely deforms the skinned body
+WADDLE_CHECK: gremlin bite animates its head bones
+WADDLE_CHECK: gremlin reaction offsets stay bounded across repeated ticks
+WADDLE_CHECK: sword recovery blends out instead of cutting to idle
+WADDLE_CHECK: sword recovery settles fully into locomotion
+WADDLE_CHECK: dash-strike overlaps dash recovery with the sword pose
+WADDLE_CHECK: foot IK chains are bound for drifter-skeletal(Clone)
+WADDLE_CHECK: ground probes find solid floor below every supporting foot of drifter-skeletal(Clone)
+WADDLE_CHECK: foot IK chains are bound for gremlin-skeletal(Clone)
+WADDLE_CHECK: ground probes find solid floor below every supporting foot of gremlin-skeletal(Clone)
+WADDLE_CHECK: foot IK chains are bound for charger-skeletal(Clone)
+WADDLE_CHECK: ground probes find solid floor below every supporting foot of charger-skeletal(Clone)
+WADDLE_CHECK: charger forefeet settle into a visibly wider stance
+WADDLE_CHECK: a reachable planted paw stays in world space through a small body shift
+WADDLE_CHECK: foot probe reads the raised sloped surface and its normal
+WADDLE_CHECK: analytic leg solver reaches the sloped foot target without moving the actor
+WADDLE_CHECK: paw orientation follows the ground normal
+WADDLE_CHECK: airborne or charging movement releases planted foot anchors
+WADDLE_CHECK: two-bone solve reaches a reachable target while preserving bone lengths
+WADDLE_CHECK: unreachable IK targets clamp safely without stretching or NaN
+WADDLE_CHECK: exit locked and no save written during combat
+WADDLE_CHECK: one second of movement matches reference speed
+WADDLE_CHECK: diagonal movement is normalized
+WADDLE_CHECK: dash grants invulnerability
+WADDLE_CHECK: dash travels about 2.4m over the longer readable dash animation
+WADDLE_CHECK: dash-strike locks launch heading despite cursor change
+WADDLE_CHECK: idle stops the gait phase and settles the feet
+WADDLE_CHECK: visual turns ease while combat facing responds immediately
+WADDLE_CHECK: visual heading catches up to combat aim
+WADDLE_CHECK: outer wall blocks walking
+WADDLE_CHECK: cover collision stops the gait rather than making feet run in place
+WADDLE_CHECK: cover pillar blocks walking
+WADDLE_CHECK: sword wind-up delays damage and preserves the committed swing direction
+WADDLE_CHECK: sword cone damages front enemy and excludes enemy behind
+WADDLE_CHECK: a swing resolves damage once
+WADDLE_CHECK: a press near recovery end buffers the next swing without requiring another click
+WADDLE_CHECK: contact damage respects recovery invulnerability
+WADDLE_CHECK: pause freezes movement, skeletal animation, foot IK and atmosphere
+WADDLE_CHECK: room clear reveals chest without banking or granting per-kill loot
+WADDLE_CHECK: chest animates before granting its reward
+WADDLE_CHECK: pause freezes chest animation and reward timing
+WADDLE_CHECK: chest remains open and grants reward once after animation
+WADDLE_CHECK: chest lid lifts above the box instead of rotating into it
+WADDLE_CHECK: unextracted rewards remain unsaved
+WADDLE_CHECK: extraction channel starts without prematurely saving loot
+WADDLE_CHECK: pause freezes extraction channel and banking
+WADDLE_CHECK: extract banks the room reward exactly once
+WADDLE_CHECK: bank survives serialized persistence round trip
+WADDLE_CHECK: loss forfeits carried loot and preserves bank
+WADDLE_CHECK: return to Snowhaven resets player health and places Waddle in the safe camp
+WADDLE_CHECK: outdoor region swaps collision, lights and the active combat roster
+WADDLE_CHECK: camp safety blocks hostile damage
+WADDLE_CHECK: wilderness retains normal combat damage
+WADDLE_CHECK: returning to camp restores health
+WADDLE_CHECK: hostiles led to camp are sent back to their wilderness post
+WADDLE_CHECK: pause freezes outdoor movement, fire, snow and NPC clocks
+WADDLE_CHECK: nearby NPC interaction provides wilderness directions
+WADDLE_CHECK: supply cache banks its reward exactly once outside a dive
+WADDLE_CHECK: cache claim and bank totals survive reload together
+WADDLE_CHECK: clearing wilderness creatures never reveals the dungeon chest
+WADDLE_CHECK: outer region collision keeps Waddle on the snowfield
+WADDLE_CHECK: entrance interaction transfers Waddle into Frostvault with outdoor objects disabled
+WADDLE_CHECK: entering a dive preserves secured outdoor rewards
+WADDLE_SMOKE_OK 76 assertions
+
+Smoke checks use a unique temporary bank key, removed on completion.
+Actual Unity captures: snowhaven-camp-v7.png, frostwood-pond-v7.png, frostvault-entrance-v7.png.
+No Tripo requests or credit spend in this pass.

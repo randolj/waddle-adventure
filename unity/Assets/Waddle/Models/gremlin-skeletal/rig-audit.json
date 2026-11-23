@@ -1,0 +1,43 @@
+{
+  "repaired_unweighted_vertices": 0,
+  "name": "gremlin",
+  "height": 1.2,
+  "bones": [
+    "tripo::Root",
+    "tripo::Spine_0",
+    "tripo::Head_0",
+    "tripo::Head_1",
+    "bone_4",
+    "bone_5",
+    "tripo::0_Right_Limb_0",
+    "tripo::0_Right_Limb_1",
+    "bone_8",
+    "bone_9",
+    "tripo::0_Right_Limb_2",
+    "tripo::0_Right_Limb_3",
+    "bone_12",
+    "bone_13",
+    "tripo::0_Left_Limb_0",
+    "tripo::0_Left_Limb_1",
+    "bone_16",
+    "bone_17",
+    "tripo::0_Left_Limb_2",
+    "tripo::0_Left_Limb_3",
+    "bone_20",
+    "bone_21",
+    "bone_22",
+    "tripo::1_Right_Limb_0",
+    "tripo::1_Right_Limb_1",
+    "tripo::1_Right_Limb_2",
+    "tripo::1_Right_Limb_3",
+    "tripo::1_Left_Limb_0",
+    "tripo::1_Left_Limb_1",
+    "tripo::1_Left_Limb_2",
+    "tripo::1_Left_Limb_3"
+  ],
+  "actions": [
+    "preset:quadruped:walk"
+  ],
+  "weighted_vertices": 14241,
+  "vertices": 14241
+}

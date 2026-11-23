@@ -1,0 +1,8 @@
+{
+  "name": "sword",
+  "task_id": "249f0c5b-66a8-4442-8e9c-56196ee3698e",
+  "model": "P2-20260801",
+  "face_limit": 5000,
+  "texture_quality": "standard",
+  "reference": "art-src/unity-concepts/model-references/sword.png"
+}

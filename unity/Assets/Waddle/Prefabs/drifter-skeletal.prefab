@@ -1,0 +1,216 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8060269465374260557
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9048013279412162447}
+  - component: {fileID: 1380721279888403597}
+  - component: {fileID: 3231710544303165064}
+  m_Layer: 0
+  m_Name: drifter-skeletal
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9048013279412162447
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8060269465374260557}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 4241327136231992729}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1380721279888403597
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8060269465374260557}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 24a1c3f5f6fa74270882034e76ae4b71, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Waddle.SliceSkeleton
+  animator: {fileID: 7799131038292703203}
+  idle: {fileID: -1978303741906493279, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  walk: {fileID: -4799524434163024911, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  slash: {fileID: -7198758036422395429, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  dash: {fileID: -6835924908629740823, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  hurt: {fileID: 1323920681783110427, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  rightHand: {fileID: 3089925896338462784}
+  hips: {fileID: 3424552923062056812}
+  torso: {fileID: 4806891196449018244}
+  creatureHead: {fileID: 0}
+  nominalSpeed: 5
+  strideDistance: 2.2
+  walkStart: 0.04
+  walkEnd: 1.2
+  penguinWaddle: 1
+  bodyWobble: 0
+--- !u!114 &3231710544303165064
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8060269465374260557}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 729b93c7055bb4bc6adef3fd3282777c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Waddle.SliceFootIK
+  legs:
+  - upper: {fileID: 4139885453217827133}
+    lower: {fileID: 4339045520514227338}
+    foot: {fileID: 7539534264973650185}
+    phaseOffset: 0
+    outward: 0
+  - upper: {fileID: 4771350337164562011}
+    lower: {fileID: 2801286620123879775}
+    foot: {fileID: 5237542737800062134}
+    phaseOffset: 0.5
+    outward: 0
+  surfaceOffset: 0.045
+  maxStep: 0.09
+  maxCorrection: 0.065
+  soleTilt: 18
+  groundMask: 64
+--- !u!1001 &4419862962536729202
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 9048013279412162447}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -4491030692114475575, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_UpdateWhenOffscreen
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -4491030692114475575, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 80a35521a62b248859042d50ee2bab0b, type: 2}
+    - target: {fileID: 919132149155446097, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_Name
+      value: drifter-skeletal
+      objectReference: {fileID: 0}
+    - target: {fileID: 5866666021909216657, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+      propertyPath: m_CullingMode
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+--- !u!4 &2801286620123879775 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -7226400927507180755, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &3089925896338462784 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 1708868432857961010, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &3424552923062056812 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 1355853208031591710, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4139885453217827133 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8924636854331686065, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4241327136231992729 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4339045520514227338 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -9123761664713795848, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4771350337164562011 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -44547639361272791, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4806891196449018244 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 9215213528835922934, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &5237542737800062134 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8501103590047723204, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &7539534264973650185 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -3028864788809931909, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}
+--- !u!95 &7799131038292703203 stripped
+Animator:
+  m_CorrespondingSourceObject: {fileID: 5866666021909216657, guid: 49841893d424f436ebd415529c31ec13, type: 3}
+  m_PrefabInstance: {fileID: 4419862962536729202}
+  m_PrefabAsset: {fileID: 0}

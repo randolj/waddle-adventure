@@ -1,0 +1,12 @@
+{
+  "task_id": "735e0c77-78d6-41d6-9ea3-22950407798e",
+  "parameters": {
+    "input": "1ebe0561-c39e-4c4a-818c-1710bb3e9f3e",
+    "animations": [
+      "preset:quadruped:walk"
+    ],
+    "out_format": "glb",
+    "animate_in_place": true
+  },
+  "credits_consumed": 10.0
+}

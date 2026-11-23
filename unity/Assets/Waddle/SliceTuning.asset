@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 883c087b0834d4908b21481107ab3081, type: 3}
+  m_Name: SliceTuning
+  m_EditorClassIdentifier: Assembly-CSharp::Waddle.SliceTuning
+  moveSpeed: 5
+  acceleration: 26
+  dashSpeed: 15
+  dashDuration: 0.16
+  dashRest: 0.28
+  strikeGrace: 0.18
+  lungeSpeed: 10.8
+  attackDuration: 0.3
+  attackCooldown: 0.36
+  attackRange: 1.85
+  inputBuffer: 0.13
+  attackArc: 100
+  damage: 28
+  maxHealth: 100
+  drifterModel: {fileID: 8060269465374260557, guid: b5eba86ace7b1495f94a490195fdf111, type: 3}
+  swordModel: {fileID: 965382133715136012, guid: 5186cfdc250f2427d936476048702e0a, type: 3}
+  gremlinModel: {fileID: 6609321802197146277, guid: 6b65d0fb6c4534043809b677f9cd7386, type: 3}
+  chargerModel: {fileID: 3208856694383027098, guid: d5570814a4c554a018912d9b18bd3834, type: 3}
